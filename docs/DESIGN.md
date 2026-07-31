@@ -68,9 +68,19 @@ numeric type inside the domain package. The transport layer and the frontend con
 
 **Non-finite results are rejected, not serialised.** `NaN` and `±Inf` are not representable in JSON —
 `encoding/json` errors rather than emitting them. Every operation checks its result before returning,
-and an overflow surfaces as `RESULT_OVERFLOW` instead of a broken response body. This also covers the
-subtler input case: a request containing `1e400` decodes *successfully* into `+Inf`, so operands are
-validated as finite on the way in as well as on the way out.
+and an overflow surfaces as `RESULT_OVERFLOW` instead of a broken response body.
+
+On the way in, the two layers refuse non-finite operands for different reasons, and the split is
+deliberate. `encoding/json` already rejects an out-of-range literal like `1e400` with an
+`UnmarshalTypeError` — it does *not* decode to `+Inf`, which was verified against the decoder rather
+than assumed — and `NaN` and `Infinity` are not JSON syntax at all. So the transport layer maps those
+decode failures onto `INVALID_OPERAND`, and no request can hand the domain a non-finite value.
+
+The domain still checks. It defends its own boundary, not the HTTP one: it is an ordinary Go package
+that any caller can import, and a guarantee that holds only because of what happens to sit in front of
+it is not a guarantee. The practical consequence is that `ErrInvalidOperand` is unreachable through
+the API, so the mapping from that sentinel to its error code is covered by testing the mapping
+function directly rather than by a request that cannot be constructed.
 
 ## Validation on both sides, deliberately
 

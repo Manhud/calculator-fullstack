@@ -9,9 +9,13 @@ package calculator
 import "errors"
 
 var (
-	// ErrInvalidOperand reports an operand that is NaN or ±Inf. Such values
-	// arrive from a request body containing a literal like 1e400, which decodes
-	// successfully into +Inf rather than failing as malformed JSON.
+	// ErrInvalidOperand reports an operand that is NaN or ±Inf.
+	//
+	// No HTTP request can produce one: encoding/json rejects an out-of-range
+	// literal such as 1e400 with an UnmarshalTypeError rather than decoding it
+	// to +Inf, and NaN and Infinity are not JSON syntax at all. This guard exists
+	// for callers of the package, which is the boundary this package defends —
+	// it does not know a transport layer is in front of it.
 	ErrInvalidOperand = errors.New("operand must be a finite number")
 
 	// ErrDivisionByZero reports a zero divisor. Negative zero is zero, so it is

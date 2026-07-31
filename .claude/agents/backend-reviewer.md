@@ -54,9 +54,12 @@ rejected **before** encoding. This is the highest-yield area — probe it:
 
 - `power` overflowing to `+Inf`; `power(0, -1)`; `sqrt` of a negative; division by zero including
   `-0.0` as the divisor.
-- Operands that are already `NaN` or `±Inf` on the way in. Note that a JSON body literally containing
-  `NaN` or `Infinity` fails at decode and must surface as `INVALID_JSON`, while `1e400` overflows to
-  `+Inf` during decode and must surface as `INVALID_OPERAND` — confirm both paths, they are different.
+- Non-finite operands arriving over the wire. `NaN` and `Infinity` are not JSON syntax and fail as
+  `*json.SyntaxError`, so they must surface as `INVALID_JSON`. An out-of-range literal like `1e400` is
+  valid syntax but fails as `*json.UnmarshalTypeError`, so it must surface as `INVALID_OPERAND`. These
+  are different code paths reached by different error types — confirm both, and confirm that a
+  non-numeric operand such as `"a"` lands on `INVALID_OPERAND` too rather than being lumped into
+  `INVALID_JSON`.
 - Any place where the finite check happens after serialisation rather than before.
 
 **Transport.** Decoding rejects unknown fields and malformed bodies without leaking internals in the
