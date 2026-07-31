@@ -323,8 +323,8 @@ been run.
 | 0 | Repository, conventions, Makefile, coverage gate, README, DESIGN.md | done |
 | 1 | `internal/calculator` — operations, sentinel errors, tests          | done |
 | 2 | `transport/http` and `cmd/api` — routes, mapping, middleware, server | done, reviewed |
-| 3 | Frontend — Vite, typed API client, `useCalculator`, `useKeyboard`, components | |
-| 4 | Frontend tests — Vitest, React Testing Library, MSW                 | |
+| 3 | Frontend — Vite, typed API client, `useCalculator`, `useKeyboard`, components | done, driven in a browser |
+| 4 | Frontend tests — Vitest, React Testing Library, MSW                 | done |
 | 5 | Dockerfiles, compose, GitHub Actions                                | |
 | 6 | README setup and API examples, coverage reports, final clean-clone check | |
 
