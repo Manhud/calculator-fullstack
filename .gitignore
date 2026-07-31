@@ -1,0 +1,29 @@
+# --- Go ---
+/backend/bin/
+*.test
+# Intermediate coverage profile. The rendered report in docs/coverage/ IS committed —
+# it is a required deliverable.
+coverage.out
+
+# --- Node ---
+node_modules/
+/frontend/dist/
+/frontend/.vite/
+npm-debug.log*
+
+# --- Environment ---
+.env
+.env.local
+.env.*.local
+
+# --- Editors / OS ---
+.DS_Store
+.idea/
+*.swp
+
+# --- Agent tooling ---
+# Machine-specific permissions. The agent definitions in .claude/agents/ ARE tracked:
+# they document the review criteria used to build this, which the assignment asks for.
+.claude/settings.local.json
+.agents/
+skills-lock.json
