@@ -344,7 +344,7 @@ been run.
 | 2 | `transport/http` and `cmd/api` — routes, mapping, middleware, server | done, reviewed |
 | 3 | Frontend — Vite, typed API client, `useCalculator`, `useKeyboard`, components | done, driven in a browser |
 | 4 | Frontend tests — Vitest, React Testing Library, MSW                 | done |
-| 5 | Dockerfiles, compose, GitHub Actions                                | |
+| 5 | Dockerfiles, compose, GitHub Actions                                | done, run and verified |
 | 6 | README setup and API examples, coverage reports, final clean-clone check | |
 
 The last item in Phase 6 is not paperwork: clone the repository into an empty directory and follow the
