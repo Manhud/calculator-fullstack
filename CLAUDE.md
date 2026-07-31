@@ -32,16 +32,20 @@ state management libraries, keybinding libraries (`react-hotkeys`, `mousetrap`, 
 ```
 .
 ├── backend/
-│   ├── cmd/api/main.go              # composition root only: config, wiring, ListenAndServe
+│   ├── cmd/api/
+│   │   ├── main.go                  # composition root only: config, wiring, signals
+│   │   └── main_test.go             # run() on a real listener: serves, then drains
 │   ├── internal/
 │   │   ├── calculator/              # DOMAIN — pure Go, zero HTTP/JSON imports
 │   │   │   ├── calculator.go        # operations
 │   │   │   ├── errors.go            # domain error taxonomy
 │   │   │   └── calculator_test.go   # table-driven tests
 │   │   └── transport/http/          # ADAPTER — decode, validate, map errors, encode
-│   │       ├── handler.go
+│   │       ├── handler.go           # routes, operation registry, arity
 │   │       ├── response.go          # JSON envelope + error mapping
-│   │       └── handler_test.go      # httptest, no real network
+│   │       ├── middleware.go        # CORS, panic recovery, request logging
+│   │       ├── handler_test.go      # httptest, no real network
+│   │       └── middleware_test.go
 │   ├── go.mod
 │   └── Dockerfile
 ├── frontend/

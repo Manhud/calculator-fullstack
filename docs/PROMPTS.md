@@ -183,6 +183,74 @@ wrong code on the wire, and no per-operation test would notice.
 
 ---
 
+### 2026-07-31 — Phase 2: the HTTP transport layer
+
+**Agent:** Claude Code (Opus 5)
+
+**Prompt:**
+
+> **Phase 2 — HTTP transport layer.**
+>
+> Build `backend/internal/transport/http` and `backend/cmd/api`, following CLAUDE.md Sections 2, 3 and
+> 4. Section 3 is frozen: the code conforms to the contract, never the reverse.
+>
+> - `handler.go`: `POST /api/v1/calculations` and `GET /health` on a stdlib `http.ServeMux` using
+>   method-aware patterns. Dependencies injected through a struct; no globals, no `init()`. Decode
+>   strictly — reject unknown fields, distinguish a missing `operands` key from an empty array, and
+>   bound the request body.
+> - `response.go`: the JSON envelope and the mapping from domain sentinel to error code, matched with
+>   `errors.Is`. All seven codes from the Section 3 table must be reachable, and no code outside that
+>   set may ever be emitted. Every client fault is 400.
+> - `middleware.go`: CORS with the origin from `ALLOWED_ORIGIN`, covering preflight; panic recovery;
+>   request logging with `log/slog`. Small and hand-written — no library.
+> - `cmd/api/main.go`: composition root only. `ReadHeaderTimeout`, graceful shutdown on SIGINT and
+>   SIGTERM that waits for in-flight requests, port and allowed origin from the environment with
+>   documented defaults.
+> - `handler_test.go`: `httptest`, no real network. Table-driven. One test per error code that
+>   actually provokes it, including the two distinct non-finite input paths — a body containing a
+>   literal `NaN` must fail as `INVALID_JSON`, while `1e400` decodes successfully into `+Inf` and must
+>   surface as `INVALID_OPERAND`. Also cover wrong arity per operation, an unknown operation, a
+>   wrong-method request, and the health endpoint.
+>
+> Section 2's tree does not list `middleware.go`; if you add it, update that tree in the same change so
+> CLAUDE.md keeps describing reality.
+>
+> Show me the request/response types, the sentinel-to-code mapping table, and the list of test cases
+> before writing the implementation.
+>
+> Then run `make test-backend`, `make lint-backend` and `make coverage`, and report the real numbers.
+
+**Outcome:** Total statement coverage 93.0%, `internal/calculator` and `internal/transport/http` both
+at 100%, `cmd/api` at 63.3% — the uncovered remainder being `main` itself, which reads the environment
+and opens a listener.
+
+**Human review:** My own prompt contained a factual error, and the agent caught it while designing
+rather than after implementing. I had asserted — in the prompt, in DESIGN.md and in a doc comment —
+that a body containing `1e400` decodes into `+Inf`. It does not: `encoding/json` rejects it with an
+`UnmarshalTypeError`. The agent checked against the real decoder instead of taking my word for it, and
+the correction is its own commit.
+
+That has a consequence I chose to write down rather than paper over: no HTTP request can hand the
+domain a non-finite operand, so `calculator.ErrInvalidOperand` is unreachable through the API. The
+domain keeps the check anyway — it is an importable package defending its own boundary — and the
+mapping is covered by testing the mapper directly, which is the honest way to cover a branch that no
+constructible request reaches.
+
+I also dropped a requirement from my own prompt. I had asked for a missing `operands` key to be
+distinguished from an empty array; JSON decoding makes them identical, and both mean zero operands, so
+the distinction would have been machinery producing no observable difference.
+
+Two things I asked to be added after seeing the first draft. `main` was restructured so that `run`
+takes a `net.Listener`, which lets a test bind port zero, serve a real request, cancel the context and
+assert that the port stops accepting connections — graceful shutdown is usually claimed in a comment
+and never checked. And an unused `Error()` method on the internal error type was removed rather than
+left for coverage to flag.
+
+The `make lint` gate earned its place here: it failed the build on a formatting slip in a test file
+that `go test` was perfectly happy with.
+
+---
+
 ## Where I overrode the agent
 
 1. **Keyboard input.** It argued the feature was out of scope and unrequested. I added it anyway, but
