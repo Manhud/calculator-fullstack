@@ -3,7 +3,7 @@
 <html lang="en">
 
 <head>
-    <title>Code coverage report for src/domain/operations.ts</title>
+    <title>Code coverage report for src/domain/keys.ts</title>
     <meta charset="utf-8" />
     <link rel="stylesheet" href="../../prettify.css" />
     <link rel="stylesheet" href="../../base.css" />
@@ -19,34 +19,34 @@
 <body>
 <div class='wrapper'>
     <div class='pad1'>
-        <h1><a href="../../index.html">All files</a> / <a href="index.html">src/domain</a> operations.ts</h1>
+        <h1><a href="../../index.html">All files</a> / <a href="index.html">src/domain</a> keys.ts</h1>
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">90% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>9/10</span>
+                <span class='fraction'>7/7</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">50% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>1/2</span>
+                <span class='fraction'>0/0</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
                 <span class="strong">100% </span>
                 <span class="quiet">Functions</span>
-                <span class='fraction'>4/4</span>
+                <span class='fraction'>1/1</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
                 <span class="strong">100% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>8/8</span>
+                <span class='fraction'>6/6</span>
             </div>
         
             
@@ -162,10 +162,7 @@
 <a name='L97'></a><a href='#L97'>97</a>
 <a name='L98'></a><a href='#L98'>98</a>
 <a name='L99'></a><a href='#L99'>99</a>
-<a name='L100'></a><a href='#L100'>100</a>
-<a name='L101'></a><a href='#L101'>101</a>
-<a name='L102'></a><a href='#L102'>102</a>
-<a name='L103'></a><a href='#L103'>103</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<a name='L100'></a><a href='#L100'>100</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -189,7 +186,6 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">3x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -200,6 +196,7 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -243,131 +240,125 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">46x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">77x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">21x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">189x</span>
+<span class="cline-any cline-yes">2x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">189x</span>
-<span class="cline-any cline-yes">189x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">3x</span>
-<span class="cline-any cline-yes">21x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">51x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">import type { Operation } from '../api/types'
 &nbsp;
 /**
- * One description of each operation, used by the buttons, the field labels and
- * the keyboard map. Kept in a single place so those three cannot drift: a
- * shortcut shown on a button that the handler does not implement is worse than
- * no shortcut at all.
+ * The keypad, described once.
+ *
+ * Layout, labels, keyboard bindings and behaviour all read from this list, so a
+ * key shown on screen cannot disagree with the key that works — the failure mode
+ * of every hand-maintained shortcut legend.
  */
-export interface OperationMeta {
-  id: Operation
-  /** Shown on the button and read by screen readers. */
-  label: string
-  /** Shown alongside the label. Decorative — never the only identification. */
+&nbsp;
+export type KeyAction =
+  | { kind: 'digit'; digit: string }
+  | { kind: 'decimal' }
+  | { kind: 'binary'; operation: Extract&lt;Operation, 'add' | 'subtract' | 'multiply' | 'divide' | 'power' | 'percentage'&gt; }
+  | { kind: 'unary'; operation: Extract&lt;Operation, 'sqrt'&gt; }
+  | { kind: 'equals' }
+  | { kind: 'clear' }
+  | { kind: 'backspace' }
+  | { kind: 'toggleSign' }
+&nbsp;
+export interface KeyDefinition {
+  /** The glyph on the key. Decorative — `label` is the accessible name. */
   symbol: string
-  arity: 1 | 2
-  /** The key from CLAUDE.md Section 5 that selects this operation. */
-  shortcut: string
-  /**
-   * Field labels. "Operand 1" and "Operand 2" would be accurate and useless;
-   * percentage in particular is unreadable without naming its two roles.
-   */
-  operandLabels: readonly [string] | readonly [string, string]
+  /** What a screen reader announces, and what the tests query by. */
+  label: string
+  action: KeyAction
+  /** Keyboard keys that trigger it. Several where a keyboard offers alternatives. */
+  bindings: readonly string[]
+  /** Drives the colour family; see index.css. */
+  variant: 'digit' | 'operator' | 'function' | 'clear' | 'equals'
+  /** Tailwind classes for the cells that are not one column by one row. */
+  span?: string
 }
 &nbsp;
-export const OPERATION_LIST: readonly OperationMeta[] = [
-  {
-    id: 'add',
-    label: 'Add',
-    symbol: '+',
-    arity: 2,
-    shortcut: '+',
-    operandLabels: ['First number', 'Second number'],
-  },
-  {
-    id: 'subtract',
-    label: 'Subtract',
-    symbol: '−',
-    arity: 2,
-    // 's', not '-'. The minus key has to reach the field so a negative number
-    // can be typed at all, and typing always wins over a shortcut.
-    shortcut: 's',
-    operandLabels: ['Start with', 'Subtract'],
-  },
-  {
-    id: 'multiply',
-    label: 'Multiply',
-    symbol: '×',
-    arity: 2,
-    shortcut: '*',
-    operandLabels: ['First number', 'Second number'],
-  },
-  {
-    id: 'divide',
-    label: 'Divide',
-    symbol: '÷',
-    arity: 2,
-    shortcut: '/',
-    operandLabels: ['Divide', 'By'],
-  },
-  {
-    id: 'power',
-    label: 'Power',
-    symbol: 'xʸ',
-    arity: 2,
-    shortcut: '^',
-    operandLabels: ['Base', 'Exponent'],
-  },
-  {
-    id: 'sqrt',
-    label: 'Square root',
-    symbol: '√',
-    arity: 1,
-    shortcut: 'r',
-    operandLabels: ['Value'],
-  },
-  {
-    id: 'percentage',
-    label: 'Percentage',
-    symbol: '%',
-    arity: 2,
-    shortcut: '%',
-    operandLabels: ['Percent', 'Of'],
-  },
-] as const
+export const KEYPAD: readonly KeyDefinition[] = [
+  { symbol: 'AC', label: 'Clear all', action: { kind: 'clear' }, bindings: ['Escape'], variant: 'clear' },
+  { symbol: '⌫', label: 'Backspace', action: { kind: 'backspace' }, bindings: ['Backspace'], variant: 'function' },
+  { symbol: '√', label: 'Square root', action: { kind: 'unary', operation: 'sqrt' }, bindings: ['r'], variant: 'function' },
+  { symbol: '÷', label: 'Divide', action: { kind: 'binary', operation: 'divide' }, bindings: ['/'], variant: 'operator' },
 &nbsp;
-const BY_ID = new Map&lt;Operation, OperationMeta&gt;(OPERATION_LIST.map((op) =&gt; [op.id, op]))
+  { symbol: 'xʸ', label: 'Power', action: { kind: 'binary', operation: 'power' }, bindings: ['^'], variant: 'function' },
+  { symbol: '%', label: 'Percentage', action: { kind: 'binary', operation: 'percentage' }, bindings: ['%'], variant: 'function' },
+  { symbol: '±', label: 'Toggle sign', action: { kind: 'toggleSign' }, bindings: [], variant: 'function' },
+  { symbol: '×', label: 'Multiply', action: { kind: 'binary', operation: 'multiply' }, bindings: ['*'], variant: 'operator' },
 &nbsp;
-export function operationMeta(id: Operation): OperationMeta {
-  const meta = BY_ID.get(id)
-  // Unreachable while Operation is the union of the ids above, but the alternative
-  // is a non-null assertion that would silently return undefined if that changed.
-  <span class="missing-if-branch" title="if path not taken" >I</span>if (!meta) <span class="cstat-no" title="statement not covered" >throw new Error(`no metadata for operation ${id}`)</span>
-  return meta
+  { symbol: '7', label: '7', action: { kind: 'digit', digit: '7' }, bindings: ['7'], variant: 'digit' },
+  { symbol: '8', label: '8', action: { kind: 'digit', digit: '8' }, bindings: ['8'], variant: 'digit' },
+  { symbol: '9', label: '9', action: { kind: 'digit', digit: '9' }, bindings: ['9'], variant: 'digit' },
+  { symbol: '−', label: 'Subtract', action: { kind: 'binary', operation: 'subtract' }, bindings: ['-'], variant: 'operator' },
+&nbsp;
+  { symbol: '4', label: '4', action: { kind: 'digit', digit: '4' }, bindings: ['4'], variant: 'digit' },
+  { symbol: '5', label: '5', action: { kind: 'digit', digit: '5' }, bindings: ['5'], variant: 'digit' },
+  { symbol: '6', label: '6', action: { kind: 'digit', digit: '6' }, bindings: ['6'], variant: 'digit' },
+  { symbol: '+', label: 'Add', action: { kind: 'binary', operation: 'add' }, bindings: ['+'], variant: 'operator' },
+&nbsp;
+  { symbol: '1', label: '1', action: { kind: 'digit', digit: '1' }, bindings: ['1'], variant: 'digit' },
+  { symbol: '2', label: '2', action: { kind: 'digit', digit: '2' }, bindings: ['2'], variant: 'digit' },
+  { symbol: '3', label: '3', action: { kind: 'digit', digit: '3' }, bindings: ['3'], variant: 'digit' },
+  {
+    symbol: '=',
+    label: 'Calculate',
+    action: { kind: 'equals' },
+    bindings: ['Enter', '='],
+    variant: 'equals',
+    span: 'row-span-2',
+  },
+&nbsp;
+  {
+    symbol: '0',
+    label: '0',
+    action: { kind: 'digit', digit: '0' },
+    bindings: ['0'],
+    variant: 'digit',
+    span: 'col-span-2',
+  },
+  { symbol: '.', label: 'Decimal point', action: { kind: 'decimal' }, bindings: ['.', ','], variant: 'digit' },
+]
+&nbsp;
+const BY_BINDING = new Map&lt;string, KeyDefinition&gt;()
+for (const key of KEYPAD) {
+  for (const binding of key.bindings) BY_BINDING.set(binding, key)
 }
 &nbsp;
-const BY_SHORTCUT = new Map&lt;string, OperationMeta&gt;(
-  OPERATION_LIST.map((op) =&gt; [op.shortcut, op]),
-)
+export function keyForBinding(pressed: string): KeyDefinition | undefined {
+  return BY_BINDING.get(pressed)
+}
 &nbsp;
-export function operationForShortcut(key: string): OperationMeta | undefined {
-  return BY_SHORTCUT.get(key)
+/**
+ * How an operation reads in the expression line. Distinct from the key symbol
+ * only for readability: `xʸ` is a good key and a poor infix operator.
+ */
+export const OPERATOR_GLYPH: Record&lt;string, string&gt; = {
+  add: '+',
+  subtract: '−',
+  multiply: '×',
+  divide: '÷',
+  power: '^',
+  percentage: '% of',
 }
 &nbsp;</pre></td></tr></table></pre>
 
@@ -376,7 +367,7 @@ export function operationForShortcut(key: string): OperationMeta | undefined {
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-07-31T19:12:40.401Z
+                at 2026-07-31T19:39:06.111Z
             </div>
         <script src="../../prettify.js"></script>
         <script>

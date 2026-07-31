@@ -1,25 +1,56 @@
 @import 'tailwindcss';
 
 /*
- * A deliberately narrow palette. The brief is a calculator, not a landing page,
- * so the only element carrying visual weight is the answer.
- *
- * Not the near-black ground with a single acid accent that this kind of app
- * usually becomes: an instrument panel suits it better — a deep slate ground, one
- * warm amber for the active operation, and the result set in a monospace face at
- * a size nothing else competes with.
+ * Fonts are self-hosted rather than fetched from a CDN: a Google Fonts request
+ * fails inside a container with no internet, and this is run with
+ * `docker compose up`.
  */
-@theme {
-  --color-panel: oklch(0.21 0.02 255);
-  --color-panel-raised: oklch(0.26 0.02 255);
-  --color-edge: oklch(0.34 0.02 255);
-  --color-ink: oklch(0.96 0.005 255);
-  --color-ink-dim: oklch(0.72 0.015 255);
-  --color-accent: oklch(0.78 0.14 75);
-  --color-accent-ink: oklch(0.24 0.05 75);
-  --color-alarm: oklch(0.75 0.15 25);
+@import '@fontsource/space-grotesk/400.css';
+@import '@fontsource/space-grotesk/500.css';
+@import '@fontsource/space-grotesk/600.css';
+@import '@fontsource/jetbrains-mono/400.css';
+@import '@fontsource/jetbrains-mono/500.css';
+@import '@fontsource/jetbrains-mono/700.css';
 
-  --font-mono: 'SFMono-Regular', 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+/* Tokens transcribed from the design handoff. */
+@theme {
+  --color-page: #0b0f16;
+  --color-page-glow: #131c29;
+  --color-card: #111826;
+  --color-card-edge: #1e2836;
+  --color-display: #0c121d;
+  --color-display-edge: #1c2534;
+
+  --color-key-digit: #1b2331;
+  --color-key-digit-edge: #222c3c;
+  --color-key-digit-hover: #222c3d;
+  --color-key-function: #182131;
+  --color-key-function-edge: #263043;
+  --color-key-function-hover: #1e2839;
+  --color-key-operator: #221a0e;
+  --color-key-operator-edge: #3a2c15;
+  --color-key-operator-hover: #2c2112;
+  --color-key-clear: #1a1218;
+  --color-key-clear-edge: #33222a;
+  --color-key-clear-hover: #22161d;
+
+  --color-accent: #f0a83c;
+  --color-accent-hover: #ffc165;
+  --color-on-accent: #14161b;
+  --color-danger: #ff8f8f;
+
+  --color-ink: #ffffff;
+  --color-ink-body: #e8ecf3;
+  --color-ink-soft: #cdd5e2;
+  --color-ink-muted: #9aa4b6;
+  --color-ink-subtle: #7e8798;
+  --color-ink-fainter: #6f7889;
+  --color-ink-faintest: #5f687a;
+  --color-rule: #1b2431;
+  --color-code-edge: #1f2937;
+
+  --font-sans: 'Space Grotesk', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
 }
 
 :root {
@@ -29,16 +60,15 @@
 body {
   margin: 0;
   min-height: 100dvh;
-  background: var(--color-panel);
-  color: var(--color-ink);
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  background: radial-gradient(120% 90% at 50% 0%, var(--color-page-glow) 0%, var(--color-page) 60%);
+  background-attachment: fixed;
+  color: var(--color-ink-body);
+  font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
 }
 
-/*
- * Focus stays visible. Removing the ring without replacing it makes the keyboard
- * path unusable for anyone who cannot see where they are.
- */
+/* Focus stays visible. Removing the ring without replacing it makes the keyboard
+   path unusable for anyone who cannot see where they are. */
 :focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;

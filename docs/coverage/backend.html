@@ -365,7 +365,7 @@ type operation struct {
 // than kept in a package variable: a mutable package-level map is a global that
 // any code in the package can reach into, and a constructor that injects nothing
 // is ceremony rather than dependency injection.
-func newRegistry() map[string]operation <span class="cov9" title="83">{
+func newRegistry() map[string]operation <span class="cov9" title="85">{
         return map[string]operation{
                 "add":        {arity: 2, apply: func(o []float64) (float64, error) </span><span class="cov2" title="2">{ return calculator.Add(o[0], o[1]) }</span>},
                 "subtract":   {arity: 2, apply: func(o []float64) (float64, error) <span class="cov1" title="1">{ return calculator.Subtract(o[0], o[1]) }</span>},

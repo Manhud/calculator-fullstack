@@ -3,7 +3,7 @@
 <html lang="en">
 
 <head>
-    <title>Code coverage report for src/components/OperationPicker.tsx</title>
+    <title>Code coverage report for src/components/Display.tsx</title>
     <meta charset="utf-8" />
     <link rel="stylesheet" href="../../prettify.css" />
     <link rel="stylesheet" href="../../base.css" />
@@ -19,34 +19,34 @@
 <body>
 <div class='wrapper'>
     <div class='pad1'>
-        <h1><a href="../../index.html">All files</a> / <a href="index.html">src/components</a> OperationPicker.tsx</h1>
+        <h1><a href="../../index.html">All files</a> / <a href="index.html">src/components</a> Display.tsx</h1>
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
                 <span class="strong">100% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>3/3</span>
+                <span class='fraction'>2/2</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
                 <span class="strong">100% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>0/0</span>
+                <span class='fraction'>10/10</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
                 <span class="strong">100% </span>
                 <span class="quiet">Functions</span>
-                <span class='fraction'>3/3</span>
+                <span class='fraction'>1/1</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
                 <span class="strong">100% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>3/3</span>
+                <span class='fraction'>2/2</span>
             </div>
         
             
@@ -103,22 +103,7 @@
 <a name='L38'></a><a href='#L38'>38</a>
 <a name='L39'></a><a href='#L39'>39</a>
 <a name='L40'></a><a href='#L40'>40</a>
-<a name='L41'></a><a href='#L41'>41</a>
-<a name='L42'></a><a href='#L42'>42</a>
-<a name='L43'></a><a href='#L43'>43</a>
-<a name='L44'></a><a href='#L44'>44</a>
-<a name='L45'></a><a href='#L45'>45</a>
-<a name='L46'></a><a href='#L46'>46</a>
-<a name='L47'></a><a href='#L47'>47</a>
-<a name='L48'></a><a href='#L48'>48</a>
-<a name='L49'></a><a href='#L49'>49</a>
-<a name='L50'></a><a href='#L50'>50</a>
-<a name='L51'></a><a href='#L51'>51</a>
-<a name='L52'></a><a href='#L52'>52</a>
-<a name='L53'></a><a href='#L53'>53</a>
-<a name='L54'></a><a href='#L54'>54</a>
-<a name='L55'></a><a href='#L55'>55</a>
-<a name='L56'></a><a href='#L56'>56</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<a name='L41'></a><a href='#L41'>41</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -132,23 +117,9 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">233x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">107x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">749x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">15x</span>
+<span class="cline-any cline-yes">233x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -172,60 +143,44 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">import type { Operation } from '../api/types'
-import { OPERATION_LIST } from '../domain/operations'
+<span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">import type { CalculatorState } from '../hooks/useCalculator'
 &nbsp;
 interface Props {
-  selected: Operation
-  onSelect: (operation: Operation) =&gt; void
+  state: CalculatorState
 }
 &nbsp;
 /**
- * Native radio inputs in a fieldset, styled through the `peer` variants.
+ * Three lines: the expression being built, the current value, and a status line.
  *
- * The first version used buttons with `role="radio"` inside a `role="radiogroup"`.
- * That markup promises arrow-key navigation and a single tab stop, and delivers
- * neither unless both are implemented by hand — an ARIA role the code does not
- * honour is worse than no role, because assistive technology believes it. Real
- * radios come with the behaviour built in.
+ * The whole block is one live region rather than three. A screen reader should
+ * hear "twelve times four equals, forty-eight" as one announcement, not as three
+ * updates racing each other.
  */
-export function OperationPicker({ selected, onSelect }: Props) {
+export function Display({ state }: Props) {
+  const { expression, entry, busy, error, latencyMs } = state
+&nbsp;
   return (
-    &lt;fieldset className="min-w-0 border-0 p-0"&gt;
-      &lt;legend className="sr-only"&gt;Operation&lt;/legend&gt;
-      &lt;div className="grid grid-cols-2 gap-2 sm:grid-cols-4"&gt;
-        {OPERATION_LIST.map((operation) =&gt; (
-          &lt;label key={operation.id} className="cursor-pointer"&gt;
-            &lt;input
-              type="radio"
-              name="operation"
-              value={operation.id}
-              checked={operation.id === selected}
-              aria-keyshortcuts={operation.shortcut}
-              onChange={() =&gt; onSelect(operation.id)}
-              className="peer sr-only"
-            /&gt;
-            {/* The input is visually hidden, so its focus ring has to be drawn
-                here or keyboard users cannot see where they are. */}
-            &lt;span
-              className={[
-                'flex flex-col items-center gap-1 rounded-lg border px-3 py-3 transition-colors',
-                'border-edge bg-panel-raised text-ink',
-                'peer-checked:border-accent peer-checked:bg-accent peer-checked:text-accent-ink',
-                'peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent',
-              ].join(' ')}
-            &gt;
-              {/* Decoration: the label below is the accessible name. */}
-              &lt;span aria-hidden="true" className="font-mono text-lg leading-none"&gt;
-                {operation.symbol}
-              &lt;/span&gt;
-              &lt;span className="text-xs font-medium"&gt;{operation.label}&lt;/span&gt;
-            &lt;/span&gt;
-          &lt;/label&gt;
-        ))}
-      &lt;/div&gt;
-    &lt;/fieldset&gt;
+    &lt;output
+      aria-live="polite"
+      className="flex min-h-[118px] flex-col justify-between gap-2 rounded-[14px] border border-display-edge bg-display px-[18px] py-4"
+    &gt;
+      &lt;p className="truncate font-mono text-sm tracking-[0.02em] text-ink-subtle"&gt;
+        {expression || ' '}
+      &lt;/p&gt;
+&nbsp;
+      &lt;p className="truncate pb-1 text-right font-mono text-[40px]/[1.3] font-medium text-ink"&gt;
+        {error ? 'Error' : entry}
+      &lt;/p&gt;
+&nbsp;
+      {/*
+        The status line carries three different things, and the error is the one
+        that must never be conveyed by colour alone — it is the full message from
+        the service, in words.
+      */}
+      &lt;p className="min-h-[18px] text-right font-mono text-xs text-accent"&gt;
+        {busy ? 'computing…' : error ? error : latencyMs === null ? ' ' : `Go service · ${latencyMs} ms`}
+      &lt;/p&gt;
+    &lt;/output&gt;
   )
 }
 &nbsp;</pre></td></tr></table></pre>
@@ -235,7 +190,7 @@ export function OperationPicker({ selected, onSelect }: Props) {
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-07-31T19:12:40.401Z
+                at 2026-07-31T19:39:06.111Z
             </div>
         <script src="../../prettify.js"></script>
         <script>

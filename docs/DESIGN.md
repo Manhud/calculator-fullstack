@@ -33,9 +33,10 @@ it would, and separate routes would be the better answer.
 The code is the contract; the message is for a human reading a log. The frontend branches on the
 code and never parses the message, so message wording can change without breaking a client.
 
-The code set is closed — seven codes, listed exhaustively in `CLAUDE.md` Section 3. Every one has a
-test that provokes it. A closed set is what lets the frontend handle each case deliberately instead
-of falling back to "something went wrong".
+The code set is closed — ten codes, listed exhaustively in `CLAUDE.md` Section 3. Every one has a
+test that provokes it, and a test asserts that nothing outside the set is ever emitted. A closed set
+is what lets the frontend handle each case deliberately instead of falling back to "something went
+wrong", and what lets its union type be checked for exhaustiveness at compile time.
 
 Domain errors are Go sentinel values matched with `errors.Is`. The mapping from sentinel to code
 lives in the transport layer alone, which is what keeps the domain free of HTTP.
@@ -106,17 +107,63 @@ that drifts out of date degrades the experience without corrupting the result.
 
 ## Scope
 
-Kept deliberately small: no auth, no persistence, no calculation history, no state management
-library. The assignment asks for correctness, clarity and maintainability, and each of those
-additions would trade some of all three for a feature nobody requested.
+Kept deliberately small: no auth, no persistence, no database, no users, no state management library.
+The assignment asks for correctness, clarity and maintainability, and each of those would trade some
+of all three for something nobody requested.
+
+Two things did come in later — chaining and an in-memory history — and they arrived with the keypad
+redesign rather than by accretion. The reasoning is below, and `CLAUDE.md` Section 1 was changed to
+match: a scope that quietly grows is worse than one that is revised in the open.
+
+### The keypad, and why the form went away
+
+The first frontend was a form: choose one of seven operations, fill in "First number" and "Second
+number", press Calculate. It worked, it was accessible, and it was tested — and it took four
+interactions to add two numbers, which is not how anyone uses a calculator.
+
+It is now a keypad. You type `12 × 4 =` the way you would on a physical one, the expression builds on
+the line above the result, and the last few answers sit beside it where they can be reused.
+
+**This brought two things that were previously out of scope**, and the scope was changed rather than
+the design bent around it. *Chaining* — `2 + 3 ×` resolving `2 + 3` before accepting the new operator
+— is not a feature bolted onto a keypad; it is what makes one a calculator rather than a form with
+smaller buttons. *History* is where the results of a keypad go: it is eight entries held in memory,
+gone on reload, and closer to a display of what just happened than to a feature with storage behind it.
+
+**Every arithmetic result still comes from the Go service, including the intermediate ones.** Chaining
+three operations makes three requests. Computing the intermediate step in the browser would be faster
+and invisible, and it would make the service decorative — an outage would show correct answers the
+browser invented. The reference prototype included exactly such a local fallback so it could be demoed
+without a backend; it is deliberately absent here.
+
+**What the redesign did not touch**: the API layer, the contract, the error taxonomy, and every
+guarantee in Section 5 that is not about layout. Keys are real buttons with names — `÷` announces as
+"Divide", not as "division sign" — the display is a live region, errors are words rather than a colour,
+and focus stays visible. The test suite was the safety net: it was rewritten alongside the UI, and a
+label or a role lost in the rewrite fails the build rather than shipping.
+
+**Fonts are self-hosted** through `@fontsource` rather than fetched from Google. A CDN request fails
+inside a container with no internet, and this is meant to be run with `docker compose up`.
+
+**The state machine is mirrored into a ref.** Deciding what a key does means reading the current state
+*and* sometimes firing a request, and a request cannot live inside a `setState` updater: React invokes
+updaters twice under StrictMode, which would send every calculation twice.
 
 ### Additions beyond the assignment
 
 **Keyboard input.** Not requested, added on purpose: a calculator you cannot type into is a demo
-rather than a tool. Scoped tightly — a hook of roughly forty lines, no keybinding library. The rules
-that keep it from becoming a liability are in `CLAUDE.md` Section 5: it never synthesises digits, it
-bails out on modifier keys and on IME composition, it never intercepts `Backspace`, and every action
-it offers is also reachable by mouse and by `Tab`.
+rather than a tool. Scoped tightly — one hook, no keybinding library.
+
+The rules changed with the keypad, and the change is instructive. While the UI was a form, typing had
+to win and `Backspace` was never to be intercepted, because a text field owned them; subtract was
+bound to `s` so the minus key could reach the field. A keypad has no text field, so the hook owns the
+keyboard outright, `±` handles the sign, and `-` means subtract — which is what a hand reaching for it
+expects. What survived unchanged is the bailing out, and it matters more now than it did: this
+listener sees every keystroke on the page, so it stands aside for a held modifier, for IME
+composition, and for any text control a later change might add.
+
+**Operation chaining and history.** Both were explicitly out of scope while the UI was a form, and
+both came in with the keypad. See "The keypad, and why the form went away" above.
 
 **Tailwind v4** for styling, and **not** shadcn/ui. Tailwind gives consistent spacing and colour
 scales without inventing a design system for a form with two inputs. A component generator would

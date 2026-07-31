@@ -15,15 +15,21 @@ feature count. Do not add features that were not requested. Prefer deleting code
 
 - Core: `add`, `subtract`, `multiply`, `divide`
 - Extended: `power`, `sqrt`, `percentage`
-- Frontend: input, result display, validation, error handling, responsive down to 360px
-- Frontend: keyboard input for operations (see Section 5) — an explicit addition to the assignment
+- Frontend: a calculator keypad — expression line, result display, validation, error handling,
+  responsive down to 360px
+- Frontend: keyboard input for every key (see Section 5) — an explicit addition to the assignment
+- Frontend: operation chaining and a reusable history panel — added with the keypad redesign, see
+  DESIGN.md. They were out of scope while the UI was a form; a keypad without chaining is not a
+  calculator, and the history is where its results go.
 - Backend: REST endpoints, input validation, edge cases, JSON responses
 - Unit tests on both layers + coverage report
 - README with setup, API examples, design decisions
 - Dockerfile / docker-compose for both services
 
-**Out of scope:** auth, persistence, history, database, users, i18n, calculation chaining,
-state management libraries, keybinding libraries (`react-hotkeys`, `mousetrap`, and friends).
+**Out of scope:** auth, persistence beyond the current page, database, users, i18n, state management
+libraries, keybinding libraries (`react-hotkeys`, `mousetrap`, and friends). History is in-memory and
+capped at eight entries: it survives no reload, and is a display of what just happened rather than a
+feature with storage behind it.
 
 ---
 
@@ -52,7 +58,7 @@ state management libraries, keybinding libraries (`react-hotkeys`, `mousetrap`, 
 │   ├── src/
 │   │   ├── api/                     # client + typed DTOs (only place fetch is called)
 │   │   ├── components/              # presentational, no fetch
-│   │   ├── hooks/                   # useCalculator (request lifecycle), useKeyboard
+│   │   ├── hooks/                   # useCalculator (keypad state machine), useKeyboard
 │   │   ├── domain/                  # operation metadata, client-side validation rules
 │   │   ├── test/                    # Vitest setup and the MSW handlers
 │   │   └── App.tsx
@@ -169,57 +175,68 @@ it never rounds before sending.
   is no ESLint in this project; adding one to run rules oxlint already has would be a second linter.
 - **All network access lives in `src/api/`.** Components never call `fetch`. Types in `src/api/types.ts`
   mirror Section 3 exactly, including every error code.
-- `useCalculator` owns the request state machine: `idle | loading | success | error`, where an error
-  records its `origin` as `client` or `server`. Components render that state and hold no logic beyond
-  presentation.
+- `useCalculator` owns the calculator's state machine. The keypad builds an expression the way a
+  physical calculator does, so the state is what a calculator holds, not what a form holds:
 
-  An earlier version of this list included a `validating` state. It was removed: client validation is
-  synchronous, so React never renders it and no test can observe it — a state that cannot exist is
-  worse than no state, because it describes the app inaccurately. What replaced it, `origin`, is
-  observable and carries the rule that actually matters: a server error always overrides a local one.
+  ```ts
+  entry    // the number being typed, or the last result
+  acc      // the accumulated operand, null when nothing is pending
+  pending  // the operation waiting for its right-hand side, null when none
+  fresh    // the next digit replaces `entry` rather than appending to it
+  history  // at most eight { expression, value } pairs, newest first
+  ```
+
+  Plus the request lifecycle: `busy`, `error` and `latencyMs`. Components render this and hold no
+  logic beyond presentation.
+
+  **Every arithmetic result comes from the Go service.** Chaining means `2 + 3 ×` resolves `2 + 3`
+  before accepting the new operator, which is a second request — not a local shortcut. The browser
+  computes nothing except which digits the user typed. A local fallback would make the service
+  decorative and hide an outage.
 - Client-side validation duplicates server rules intentionally (fast feedback) but the server is
   authoritative — a server error always overrides local state. Say this in DESIGN.md.
-- Accessibility is part of "clean UI": labelled inputs, `role="alert"` on the error region,
-  keyboard-operable buttons, visible focus. Errors are text, not just colour.
+- Accessibility is part of "clean UI": every key is a real `<button>` with an accessible name, the
+  display is a live region, errors are announced, focus is visible. Errors are text, not just colour.
+  A symbol alone is not a name: `÷` needs "Divide", `⌫` needs "Backspace".
 - Styling is **Tailwind v4** (`@tailwindcss/vite` plugin, CSS-first config — no `tailwind.config.js`).
   Chosen over hand-written CSS for consistent spacing/colour scales without inventing a design system.
-  **No shadcn/ui**: a component generator is unjustified for one form and a result panel, and vendored
-  components read as code the candidate did not write. Justify this in DESIGN.md.
-- Responsive with Tailwind's Grid/Flex utilities and fluid sizing. Mobile target: 360px wide.
-- **Keyboard input.** In scope by explicit decision, and deliberately small — a `useKeyboard` hook,
-  no library. The mapping is exhaustive; do not add to it:
+  **No shadcn/ui**: a component generator is unjustified here, and vendored components read as code the
+  candidate did not write. Justify this in DESIGN.md.
+  Fonts are **self-hosted** through `@fontsource`, never a CDN: a Google Fonts request fails inside a
+  container with no internet, and the reviewer runs this with `docker compose up`.
+- Responsive with Tailwind's Grid/Flex utilities and fluid sizing. Mobile target: 360px wide. Keys are
+  at least 44px tall so they are usable on a phone.
+- **Keyboard input.** In scope by explicit decision, and deliberately small — a `useKeyboard` hook, no
+  library. The keypad has no text input, so the hook owns the keyboard outright:
 
-  | Key                       | Action                                   |
-  | ------------------------- | ---------------------------------------- |
-  | `0`–`9`, `.`, `-`, `e`    | typed into the focused operand field     |
-  | `+`                       | select `add`                             |
-  | `s`                       | select `subtract`                        |
-  | `*`                       | select `multiply`                        |
-  | `/`                       | select `divide`                          |
-  | `^`                       | select `power`                           |
-  | `r`                       | select `sqrt` (root)                     |
-  | `%`                       | select `percentage`                      |
-  | `Enter`                   | submit                                   |
-  | `Escape`                  | clear operands, result and error         |
-  | `Backspace`               | native field behaviour — never intercept |
+  | Key                   | Action                                  |
+  | --------------------- | --------------------------------------- |
+  | `0`–`9`               | append a digit                          |
+  | `.` or `,`            | decimal point                           |
+  | `+ - * /`             | add, subtract, multiply, divide         |
+  | `^`                   | power                                   |
+  | `%`                   | percentage — a percent of b             |
+  | `r`                   | square root                             |
+  | `Enter` or `=`        | calculate                               |
+  | `Escape`              | clear everything                        |
+  | `Backspace`           | delete the last character               |
 
-  **Subtract is `s`, not `-`.** An earlier version of this table listed `-` in both rows, which cannot
-  hold: the minus key has to reach the field or a negative number cannot be typed. Rule 1 below
-  decides it — typing wins, so the shortcut moved.
-
-  The remaining collision is `1e+5`: the `+` is claimed as a shortcut, so scientific notation has to
-  be written `1e5`. Accepted rather than solved, because every fix costs more than the case is worth.
+  This table replaces the one written for the form UI, and the reasoning inverts with it. That version
+  reserved `-` for typing a negative number and moved subtract to `s`; a keypad has `±` for sign, so
+  `-` is free to mean subtract, which is what a hand reaching for it expects. `Backspace` was never to
+  be intercepted when a text field owned it — here nothing else does.
 
   Rules, in priority order. Break any of these and the feature is a regression, not a feature:
-  1. Native typing always wins. Digits and `.` reach the input because it has focus — the hook does
-     **not** synthesise them. Only operation keys, `Enter` and `Escape` are handled globally.
-  2. Bail out when the event target is not ours, when a modifier (`Ctrl`/`Cmd`/`Alt`) is held, or when
-     `event.isComposing` is true. Never break browser shortcuts or IME input.
-  3. `preventDefault()` only on keys actually handled, never blanket.
-  4. Every keyboard action must also be reachable by mouse and by `Tab` + `Enter`. The keyboard is an
+  1. Bail out when a modifier (`Ctrl`/`Cmd`/`Alt`) is held, when `event.isComposing` is true, or when
+     the event target is a text control. Never break a browser shortcut, IME input, or a field some
+     later change adds to the page.
+  2. `preventDefault()` only on keys actually handled, never blanket — `/` and `'` open the browser's
+     quick-find, and `Backspace` still navigates back in some browsers, so both must be claimed
+     deliberately rather than by accident.
+  3. Every key on screen is reachable by mouse and by `Tab` then `Enter`. The keyboard is an
      accelerator, never the only path.
-  5. The shortcuts are discoverable: a visible legend, and `aria-keyshortcuts` on the matching button.
-     An invisible shortcut is not a feature.
+  4. The mapping is discoverable: a visible panel listing it, and `aria-keyshortcuts` on the matching
+     button. An invisible shortcut is not a feature.
 - Tests: Vitest + React Testing Library, colocated as `*.test.ts(x)` beside the code they cover.
   Query by role or label, never by class name or a test id standing in for a missing label.
   Mock at the network boundary with **MSW**, never by replacing the client module: stubbing
@@ -241,8 +258,10 @@ A task is done when **all** of these hold:
       so this is a build failure rather than a number to read.
 - [ ] `gofmt -l .` and `go vet ./...` produce no output; `npm run lint` and `tsc --noEmit` are clean
 - [ ] Every error code in Section 3 has a test that provokes it
-- [ ] Every key in the Section 5 table has a test, plus the three bail-outs (modifier held, foreign target,
-      `isComposing`) and one proving typing digits into a focused field still works
+- [ ] Every key in the Section 5 table has a test, plus the three bail-outs (modifier held, a text
+      control focused, `isComposing`), and one proving the browser's own shortcuts survive
+- [ ] Chaining is tested end to end: `2 + 3 ×` must resolve `2 + 3` through the service before the new
+      operator is accepted, and the browser must compute nothing itself
 - [ ] README and this file still describe reality
 - [ ] `docs/PROMPTS.md` has an entry for the work just done
 

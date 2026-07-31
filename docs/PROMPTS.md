@@ -89,7 +89,7 @@ concrete checklist rather than generic advice.
 **Human review:** The agent sharpened my own framing and was right to: the strongest form of "build the
 tooling" is the *deterministic* check, not another model. An agent finds different things each run;
 `tsc --noEmit`, oxlint's jsx-a11y rules and `go vet` fail the same way every time. So the reviewers
-are the backstop for what those cannot express — all seven error codes being reachable, `errors.Is`
+are the backstop for what those cannot express — every error code being reachable, `errors.Is`
 used rather than string comparison, the keyboard bail-out rules — and the linters carry everything they
 can. That principle is written into Section 9 as "guardrails over inspection".
 
@@ -415,6 +415,50 @@ than left to look like carelessness.
 
 ---
 
+### 2026-07-31 — The keypad redesign
+
+**Agent:** Claude Code (Opus 5)
+
+**Prompt:** a design handoff produced in Claude Design and shared as a project link — tokens, layout,
+key order, state transitions and interaction rules, at hi-fi. The instruction was to recreate it in
+the existing React codebase using its own patterns, not to copy the prototype's HTML.
+
+**Outcome:** the form UI was replaced by a keypad with an expression line, chained operations, an
+in-memory history and a full keyboard map. 95 frontend tests, statements at 96.0%.
+
+**Human review:** I did not like the first frontend and said so. The agent's first response was not to
+start building but to name three conflicts, which is what I wanted from it:
+
+1. The design needed **chaining and history**, both of which `CLAUDE.md` Section 1 listed as out of
+   scope — a document I had written. I chose to widen the scope and say so in the open rather than let
+   it grow quietly. Section 1 and DESIGN.md were changed in the same commit as the code.
+2. The handoff specified a **different API** — `POST /{op}` with `{a, b}` and a bare string error. Our
+   contract is frozen and the backend is built and tested against it, so that part of the handoff was
+   ignored. The design loses nothing: it is the wire underneath, not anything the user sees.
+3. The **keyboard rules inverted**. They were written for a form — typing wins, never intercept
+   `Backspace`, subtract is `s` so `-` can reach the field. A keypad has no text field, so the hook
+   owns the keyboard, `±` takes the sign, and `-` means subtract. The whole table and its rules were
+   rewritten, and the tests with them.
+
+I also overruled the handoff on two smaller points. It calls for Google Fonts; the fonts are
+self-hosted through `@fontsource`, because a CDN request fails in a container with no internet and this
+is meant to be run with `docker compose up`. And its prototype includes a local arithmetic fallback so
+it can be demoed without a backend — deliberately absent here, since it would make the Go service
+decorative and let an outage show answers the browser invented. Chaining three operations makes three
+requests, and a test asserts exactly that by inspecting what was sent rather than what was displayed.
+
+Two defects were found by driving the built page rather than by reading it. The `=` key was not
+spanning two rows: a fixed height on the button silently cancelled its row span, leaving a hole in the
+grid. And the page was requesting a favicon that did not exist — now an inline SVG, so there is no
+second request to fail.
+
+One correction the agent made to itself is worth recording, because it would have been invisible in
+review: the first version of the state machine fired requests from inside a `setState` updater. React
+invokes updaters twice under StrictMode, so every calculation would have been sent twice. The state is
+mirrored into a ref and the request made outside the updater.
+
+---
+
 ## Where I overrode the agent
 
 1. **Keyboard input.** It argued the feature was out of scope and unrequested. I added it anyway, but
@@ -426,6 +470,12 @@ than left to look like carelessness.
    existed because I had moved the project. Caught before it ran.
 5. **`golangci-lint`.** Offered; declined for this size of project, where `gofmt` and `go vet` in a
    failing `make lint` cover the same ground without another tool to install.
+6. **The design handoff's API and its local fallback.** The handoff specified a different endpoint
+   shape and shipped a browser-side arithmetic fallback so the prototype could be demoed alone. The
+   frozen contract won, and the fallback was left out: it would make the Go service decorative.
+7. **The first frontend, in full.** I rejected the form UI after seeing it working and replaced it
+   with a keypad. The scope grew as a result, and Section 1 was rewritten rather than quietly
+   stretched.
 
 ## What I did not delegate
 

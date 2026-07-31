@@ -2,297 +2,471 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 import App from './App'
-import { respondSlowly, respondWith, respondWithError } from './test/server'
+import {
+  requests,
+  respondSlowly,
+  respondWithError,
+  respondWithNetworkFailure,
+} from './test/server'
 
 /**
  * Driven with userEvent, never fireEvent.
  *
- * fireEvent dispatches synthetic events that carry no focus and no modifier
- * state, so a bail-out rule can be missing entirely and its test still pass.
- * userEvent types through the real focus path, which is the only way the
- * keyboard rules in Section 5 are actually exercised.
+ * fireEvent dispatches synthetic events carrying no focus and no modifier state,
+ * so a bail-out rule can be missing entirely and its test still pass.
  */
 function setup() {
   return { user: userEvent.setup(), ...render(<App />) }
 }
 
-const result = () => screen.getByRole('status')
+/** The display is one live region; these read the lines inside it. */
+const display = () => screen.getByRole('status')
+const shown = () => within(display()).getAllByText(/.+/)
+
+/**
+ * Presses keys by their accessible name, the way the label reads.
+ *
+ * Sequential on purpose: a keypad is a sequence, and `Promise.all` here would
+ * fire every click at once and test nothing real. Reduced over a promise chain
+ * rather than looped, so the rule against awaiting in a loop still holds.
+ */
+function press(user: ReturnType<typeof userEvent.setup>, ...labels: string[]) {
+  return labels.reduce(
+    (previous, label) =>
+      previous.then(() => user.click(screen.getByRole('button', { name: label }))),
+    Promise.resolve(),
+  )
+}
+
+function displayText() {
+  return display().textContent ?? ''
+}
+
+describe('entering numbers', () => {
+  it('builds a number from digits', async () => {
+    const { user } = setup()
+
+    await press(user, '1', '2', '3')
+
+    expect(displayText()).toContain('123')
+  })
+
+  it('replaces the leading zero rather than growing it', async () => {
+    const { user } = setup()
+
+    await press(user, '5')
+
+    expect(displayText()).toContain('5')
+    expect(displayText()).not.toContain('05')
+  })
+
+  it('takes one decimal point per number', async () => {
+    const { user } = setup()
+
+    await press(user, '3', 'Decimal point', '1', 'Decimal point', '4')
+
+    expect(displayText()).toContain('3.14')
+  })
+
+  it('deletes a character with backspace', async () => {
+    const { user } = setup()
+
+    await press(user, '1', '2', '3', 'Backspace')
+
+    expect(displayText()).toContain('12')
+  })
+
+  it('toggles the sign, but leaves zero alone', async () => {
+    const { user } = setup()
+
+    await press(user, 'Toggle sign')
+    expect(displayText()).not.toContain('-0')
+
+    await press(user, '5', 'Toggle sign')
+    expect(displayText()).toContain('-5')
+  })
+})
 
 describe('calculating', () => {
-  it('sends the operands and shows the result', async () => {
-    respondWith(2.5)
+  it('sends the calculation and shows the result', async () => {
     const { user } = setup()
 
-    await user.click(screen.getByRole('radio', { name: /divide/i }))
-    await user.type(screen.getByLabelText('Divide'), '10')
-    await user.type(screen.getByLabelText('By'), '4')
-    await user.click(screen.getByRole('button', { name: /calculate/i }))
+    await press(user, '1', '2', 'Multiply', '4', 'Calculate')
 
-    await waitFor(() => expect(result()).toHaveTextContent('2.5'))
+    await waitFor(() => expect(displayText()).toContain('48'))
+    expect(requests).toEqual([{ operation: 'multiply', operands: [12, 4] }])
+    expect(displayText()).toContain('12 × 4 =')
   })
 
-  it('relabels the fields for the chosen operation', async () => {
+  it('does nothing on = with no operation pending', async () => {
     const { user } = setup()
 
-    expect(screen.getByLabelText('First number')).toBeInTheDocument()
+    await press(user, '7', 'Calculate')
 
-    await user.click(screen.getByRole('radio', { name: /percentage/i }))
-
-    expect(screen.getByLabelText('Percent')).toBeInTheDocument()
-    expect(screen.getByLabelText('Of')).toBeInTheDocument()
+    expect(requests).toHaveLength(0)
+    expect(displayText()).toContain('7')
   })
 
-  it('shows one field for a unary operation', async () => {
+  it('applies a unary operation immediately', async () => {
     const { user } = setup()
 
-    await user.click(screen.getByRole('radio', { name: /square root/i }))
+    await press(user, '9', 'Square root')
 
-    expect(screen.getByLabelText('Value')).toBeInTheDocument()
-    expect(screen.queryByLabelText('Second number')).not.toBeInTheDocument()
+    await waitFor(() => expect(displayText()).toContain('3'))
+    expect(requests).toEqual([{ operation: 'sqrt', operands: [9] }])
+    expect(displayText()).toContain('√(9) =')
   })
 
-  it('reports a server error as text, with its code', async () => {
-    respondWithError('DIVISION_BY_ZERO', 'cannot divide by zero')
+  it('treats percentage as a percent of b', async () => {
     const { user } = setup()
 
-    await user.click(screen.getByRole('radio', { name: /divide/i }))
-    await user.type(screen.getByLabelText('Divide'), '10')
-    await user.type(screen.getByLabelText('By'), '0')
-    await user.click(screen.getByRole('button', { name: /calculate/i }))
+    await press(user, '5', '0', 'Percentage', '2', '0', '0', 'Calculate')
 
-    const alert = await screen.findByRole('alert')
-    expect(alert).toHaveTextContent('cannot divide by zero')
-    expect(alert).toHaveTextContent('DIVISION_BY_ZERO')
+    await waitFor(() => expect(requests).toHaveLength(1))
+    expect(requests[0]).toEqual({ operation: 'percentage', operands: [50, 200] })
   })
 
-  it('refuses a blank field before sending anything', async () => {
+  it('lets the user change their mind about the operator', async () => {
     const { user } = setup()
 
-    await user.type(screen.getByLabelText('First number'), '10')
-    await user.click(screen.getByRole('button', { name: /calculate/i }))
+    await press(user, '8', 'Add', 'Multiply', '2', 'Calculate')
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(/second number/i)
+    await waitFor(() => expect(requests).toHaveLength(1))
+    // Only the second operator counts; pressing two in a row must not calculate.
+    expect(requests[0]).toEqual({ operation: 'multiply', operands: [8, 2] })
   })
 
-  it('announces that it is working', async () => {
+  it('shows the elapsed time of the last calculation', async () => {
+    const { user } = setup()
+
+    await press(user, '2', 'Add', '2', 'Calculate')
+
+    await waitFor(() => expect(displayText()).toMatch(/Go service · \d+ ms/))
+  })
+
+  it('says it is working while the request is in flight', async () => {
     respondSlowly(9, 60)
     const { user } = setup()
 
-    await user.type(screen.getByLabelText('First number'), '3')
-    await user.type(screen.getByLabelText('Second number'), '6')
-    await user.click(screen.getByRole('button', { name: /calculate/i }))
+    await press(user, '3', 'Multiply', '3', 'Calculate')
 
-    expect(result()).toHaveTextContent(/calculating/i)
-    await waitFor(() => expect(result()).toHaveTextContent('9'))
+    expect(displayText()).toContain('computing…')
+    await waitFor(() => expect(displayText()).toContain('9'))
+  })
+})
+
+// The claim the whole design rests on: the browser does no arithmetic. A local
+// shortcut would put the right number on screen and send nothing.
+describe('chaining', () => {
+  it('resolves the pending operation through the service before taking a new one', async () => {
+    const { user } = setup()
+
+    await press(user, '2', 'Add', '3', 'Multiply')
+
+    await waitFor(() => expect(displayText()).toContain('5'))
+    expect(requests).toEqual([{ operation: 'add', operands: [2, 3] }])
+    expect(displayText()).toContain('2 + 3 =')
+  })
+
+  it('carries the intermediate result into the next calculation', async () => {
+    const { user } = setup()
+
+    await press(user, '2', 'Add', '3', 'Multiply')
+    await waitFor(() => expect(requests).toHaveLength(1))
+    await press(user, '4', 'Calculate')
+
+    await waitFor(() => expect(requests).toHaveLength(2))
+    expect(requests[1]).toEqual({ operation: 'multiply', operands: [5, 4] })
+    await waitFor(() => expect(displayText()).toContain('20'))
+  })
+
+  it('asks the service for every step, computing nothing itself', async () => {
+    const { user } = setup()
+
+    await press(user, '1', 'Add', '1', 'Add', '1', 'Add', '1', 'Calculate')
+
+    await waitFor(() => expect(displayText()).toContain('4'))
+    expect(requests).toHaveLength(3)
+  })
+})
+
+describe('errors', () => {
+  it('shows the service message in words and marks the result as an error', async () => {
+    respondWithError('DIVISION_BY_ZERO', 'cannot divide by zero')
+    const { user } = setup()
+
+    await press(user, '1', '0', 'Divide', '0', 'Calculate')
+
+    await waitFor(() => expect(displayText()).toContain('cannot divide by zero'))
+    expect(displayText()).toContain('Error')
+  })
+
+  it('clears the error as soon as the user types again', async () => {
+    respondWithError('NEGATIVE_SQRT', 'cannot take the square root of a negative number')
+    const { user } = setup()
+
+    await press(user, '9', 'Toggle sign', 'Square root')
+    await waitFor(() => expect(displayText()).toContain('cannot take the square root'))
+
+    await press(user, '7')
+
+    expect(displayText()).not.toContain('cannot take the square root')
+    expect(displayText()).toContain('7')
+  })
+
+  it('reports an unreachable service rather than failing silently', async () => {
+    respondWithNetworkFailure()
+    const { user } = setup()
+
+    await press(user, '2', 'Add', '2', 'Calculate')
+
+    await waitFor(() => expect(displayText()).toMatch(/could not reach/i))
+  })
+})
+
+describe('history', () => {
+  it('starts empty and says so', () => {
+    setup()
+
+    expect(screen.getByText(/your last calculations will show up here/i)).toBeInTheDocument()
+  })
+
+  it('records a completed calculation, newest first', async () => {
+    const { user } = setup()
+
+    await press(user, '2', 'Add', '2', 'Calculate')
+    await waitFor(() => expect(displayText()).toContain('4'))
+    await press(user, '3', 'Multiply', '3', 'Calculate')
+    await waitFor(() => expect(displayText()).toContain('9'))
+
+    const entries = screen.getAllByRole('button', { name: /^Reuse/ })
+    expect(entries[0]).toHaveAccessibleName(/Reuse 9/)
+    expect(entries[1]).toHaveAccessibleName(/Reuse 4/)
+  })
+
+  // The intermediate step of a chain is not a calculation the user asked for.
+  it('does not record an intermediate result from chaining', async () => {
+    const { user } = setup()
+
+    await press(user, '2', 'Add', '3', 'Multiply')
+    await waitFor(() => expect(displayText()).toContain('5'))
+
+    expect(screen.queryAllByRole('button', { name: /^Reuse/ })).toHaveLength(0)
+  })
+
+  it('puts a recalled value back into the entry', async () => {
+    const { user } = setup()
+
+    await press(user, '6', 'Multiply', '7', 'Calculate')
+    await waitFor(() => expect(displayText()).toContain('42'))
+    await press(user, 'Clear all')
+    expect(displayText()).toContain('0')
+
+    await user.click(screen.getByRole('button', { name: /Reuse 42/ }))
+
+    expect(displayText()).toContain('42')
+  })
+
+  it('clears on request', async () => {
+    const { user } = setup()
+
+    await press(user, '2', 'Add', '2', 'Calculate')
+    await waitFor(() => expect(screen.getAllByRole('button', { name: /^Reuse/ })).toHaveLength(1))
+
+    await user.click(screen.getByRole('button', { name: 'clear' }))
+
+    expect(screen.getByText(/your last calculations will show up here/i)).toBeInTheDocument()
+  })
+
+  it('survives clearing the calculator', async () => {
+    const { user } = setup()
+
+    await press(user, '2', 'Add', '2', 'Calculate')
+    await waitFor(() => expect(displayText()).toContain('4'))
+
+    await press(user, 'Clear all')
+
+    expect(screen.getAllByRole('button', { name: /^Reuse/ })).toHaveLength(1)
   })
 })
 
 describe('the keyboard', () => {
-  // Rule 1: the hook must not synthesise digits. If it wrote them into state
-  // itself this would still pass with one field and break with two.
-  it('lets digits, a decimal point and a minus sign reach the focused field', async () => {
+  it('types digits and a decimal point', async () => {
     const { user } = setup()
 
-    const first = screen.getByLabelText('First number')
-    await user.click(first)
-    await user.keyboard('-12.5')
+    await user.keyboard('3.14')
 
-    expect(first).toHaveValue('-12.5')
-    // The minus must not have selected an operation on its way through.
-    expect(screen.getByRole('radio', { name: /add/i })).toBeChecked()
+    expect(displayText()).toContain('3.14')
+  })
+
+  it('accepts a comma as a decimal separator', async () => {
+    const { user } = setup()
+
+    await user.keyboard('3,5')
+
+    expect(displayText()).toContain('3.5')
   })
 
   it.each([
-    ['+', /add/i],
-    ['s', /subtract/i],
-    ['*', /multiply/i],
-    ['/', /divide/i],
-    ['^', /power/i],
-    ['r', /square root/i],
-    ['%', /percentage/i],
-  ])('selects an operation with %s', async (key, name) => {
+    ['+', 'add'],
+    ['-', 'subtract'],
+    ['*', 'multiply'],
+    ['/', 'divide'],
+    ['^', 'power'],
+    ['%', 'percentage'],
+  ])('binds %s to %s', async (key, operation) => {
     const { user } = setup()
 
-    await user.click(screen.getByRole('radio', { name: /multiply/i }))
-    await user.keyboard(key)
+    await user.keyboard(`8${key}2{Enter}`)
 
-    expect(screen.getByRole('radio', { name })).toBeChecked()
+    await waitFor(() => expect(requests).toHaveLength(1))
+    expect(requests[0].operation).toBe(operation)
   })
 
-  // The regression found by driving the real page: on load the event target is
-  // <body>, and a containment check alone left every shortcut dead until the
-  // user happened to focus a field.
-  it('works with nothing focused, as on page load', async () => {
+  it('binds r to the square root', async () => {
     const { user } = setup()
 
-    expect(document.body).toHaveFocus()
-    await user.keyboard('/')
+    await user.keyboard('9r')
 
-    expect(screen.getByRole('radio', { name: /divide/i })).toBeChecked()
+    await waitFor(() => expect(requests).toEqual([{ operation: 'sqrt', operands: [9] }]))
   })
 
-  it('submits on Enter', async () => {
-    respondWith(15)
+  it('calculates on = as well as Enter', async () => {
     const { user } = setup()
 
-    await user.type(screen.getByLabelText('First number'), '10')
-    await user.type(screen.getByLabelText('Second number'), '5')
-    await user.keyboard('{Enter}')
+    await user.keyboard('6*7=')
 
-    await waitFor(() => expect(result()).toHaveTextContent('15'))
+    await waitFor(() => expect(displayText()).toContain('42'))
   })
 
   it('clears on Escape', async () => {
-    respondWith(15)
     const { user } = setup()
 
-    await user.type(screen.getByLabelText('First number'), '10')
-    await user.type(screen.getByLabelText('Second number'), '5')
-    await user.keyboard('{Enter}')
-    await waitFor(() => expect(result()).toHaveTextContent('15'))
+    await user.keyboard('123{Escape}')
 
-    await user.keyboard('{Escape}')
-
-    expect(screen.getByLabelText('First number')).toHaveValue('')
-    expect(result()).not.toHaveTextContent('15')
+    expect(displayText()).not.toContain('123')
   })
 
-  // Rule 4: Backspace belongs to the field. Intercepting it would make the
-  // calculator impossible to correct a typo in.
-  it('never intercepts Backspace', async () => {
+  it('deletes with Backspace', async () => {
     const { user } = setup()
 
-    const first = screen.getByLabelText('First number')
-    await user.click(first)
     await user.keyboard('123{Backspace}')
 
-    expect(first).toHaveValue('12')
+    expect(displayText()).toContain('12')
   })
 
-  // Rule 2: a held modifier means the user is talking to the browser.
-  it.each(['{Control>}/{/Control}', '{Meta>}/{/Meta}', '{Alt>}/{/Alt}'])(
+  // Rule 1: a held modifier means the user is talking to the browser.
+  it.each(['{Control>}5{/Control}', '{Meta>}5{/Meta}', '{Alt>}5{/Alt}'])(
     'ignores %s',
     async (combination) => {
       const { user } = setup()
 
       await user.keyboard(combination)
 
-      expect(screen.getByRole('radio', { name: /add/i })).toBeChecked()
+      expect(displayText()).not.toContain('5')
     },
   )
 
-  // Rule 2: a text control outside the calculator keeps its own keys.
-  it('leaves a field outside the calculator alone', async () => {
-    const { user } = setup()
-    const outside = document.createElement('input')
-    document.body.append(outside)
-
-    outside.focus()
-    await user.keyboard('/')
-
-    expect(outside).toHaveValue('/')
-    expect(screen.getByRole('radio', { name: /add/i })).toBeChecked()
-    outside.remove()
-  })
-
-  // Rule 2: mid-composition, keystrokes belong to the input method. Without
-  // this, typing an accented character silently triggers shortcuts.
-  it('ignores a key dispatched while an IME is composing', async () => {
+  // Rule 1: mid-composition, keystrokes belong to the input method. Without
+  // this, typing an accented character silently presses keys.
+  it('ignores a key dispatched while an IME is composing', () => {
     setup()
-    const field = screen.getByLabelText('First number')
-    field.focus()
 
-    // userEvent has no composition API, so the event is dispatched directly.
-    // It is the only assertion in this file that does, and it says why.
-    field.dispatchEvent(
-      new KeyboardEvent('keydown', { key: '/', isComposing: true, bubbles: true }),
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { key: '5', isComposing: true, bubbles: true }),
     )
 
-    expect(screen.getByRole('radio', { name: /add/i })).toBeChecked()
+    expect(displayText()).not.toContain('5')
   })
 
-  // The other regression from the browser: disabling the focused control during
-  // a request hands focus back to <body>, losing the user's place after every
-  // calculation and — with the bug above — the keyboard along with it.
-  it('keeps focus in the field across a calculation', async () => {
-    respondWith(15)
+  // Rule 1: a text control some later change adds to the page keeps its keys.
+  it('leaves a focused text field alone', async () => {
     const { user } = setup()
+    const field = document.createElement('input')
+    document.body.append(field)
 
-    await user.type(screen.getByLabelText('First number'), '10')
-    const second = screen.getByLabelText('Second number')
-    await user.type(second, '5')
-    await user.keyboard('{Enter}')
+    field.focus()
+    await user.keyboard('5')
 
-    await waitFor(() => expect(result()).toHaveTextContent('15'))
-    expect(second).toHaveFocus()
+    expect(field).toHaveValue('5')
+    expect(displayText()).not.toContain('5')
+    field.remove()
+  })
+
+  // Rule 2: an unhandled key keeps its default, so the browser's own shortcuts
+  // still work. A blanket preventDefault would break Tab, F5 and the rest.
+  it('leaves a key it does not define alone', async () => {
+    const { user } = setup()
+    let defaultPrevented = false
+    window.addEventListener('keydown', (event) => {
+      if (event.key === 'F5') defaultPrevented = event.defaultPrevented
+    })
+
+    await user.keyboard('{F5}')
+
+    expect(defaultPrevented).toBe(false)
   })
 })
 
 describe('accessibility', () => {
-  it.each(['add', 'divide', 'percentage', 'square root'])(
-    'labels every operand field for %s',
-    async (operation) => {
-      const { user } = setup()
-
-      await user.click(screen.getByRole('radio', { name: new RegExp(operation, 'i') }))
-
-      for (const field of screen.getAllByRole('textbox')) {
-        expect(field).toHaveAccessibleName()
-      }
-    },
-  )
-
-  it('gives every operation control an accessible name and its shortcut', () => {
+  // A glyph is not a name: "÷" announces as "division sign" at best.
+  it('gives every key an accessible name', () => {
     setup()
 
-    for (const radio of screen.getAllByRole('radio')) {
-      expect(radio).toHaveAccessibleName()
-      expect(radio).toHaveAttribute('aria-keyshortcuts')
+    for (const key of screen.getAllByRole('button')) {
+      expect(key).toHaveAccessibleName()
     }
   })
 
-  // An error must interrupt; a result must not steal focus from the field.
-  it('uses alert for errors and status for results', async () => {
-    respondWithError('NEGATIVE_SQRT', 'cannot take the square root of a negative number')
-    const { user } = setup()
+  it('advertises the keyboard binding on the key it belongs to', () => {
+    setup()
 
-    expect(screen.getByRole('status')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Divide' })).toHaveAttribute(
+      'aria-keyshortcuts',
+      '/',
+    )
+    expect(screen.getByRole('button', { name: 'Calculate' })).toHaveAttribute(
+      'aria-keyshortcuts',
+      expect.stringContaining('Enter'),
+    )
+  })
 
-    await user.click(screen.getByRole('radio', { name: /square root/i }))
-    await user.type(screen.getByLabelText('Value'), '-1')
-    await user.keyboard('{Enter}')
+  it('announces the display as a live region', () => {
+    setup()
 
-    expect(await screen.findByRole('alert')).toBeInTheDocument()
+    expect(display()).toHaveAttribute('aria-live', 'polite')
   })
 
   // An error signalled by colour alone is invisible to a colour-blind user.
-  it('states the error in words, not only in colour', async () => {
+  it('states an error in words, not only in colour', async () => {
     respondWithError('RESULT_OVERFLOW', 'the result is too large to represent')
     const { user } = setup()
 
-    await user.type(screen.getByLabelText('First number'), '10')
-    await user.type(screen.getByLabelText('Second number'), '400')
-    await user.keyboard('{Enter}')
+    await press(user, '9', 'Power', '9', '9', '9', 'Calculate')
 
-    const alert = await screen.findByRole('alert')
-    expect(alert.textContent).toContain('too large')
+    await waitFor(() => expect(displayText()).toContain('too large to represent'))
   })
 
-  // A shortcut nobody can find is not a feature.
-  it('lists every shortcut where a user can read it', async () => {
-    const { user } = setup()
+  it('lists the keyboard map where a user can read it', () => {
+    setup()
 
-    const summary = screen.getByText(/keyboard shortcuts/i)
-    await user.click(summary)
+    const panel = screen.getByRole('region', { name: /keyboard/i })
+    expect(within(panel).getByText('0-9 .')).toBeInTheDocument()
+    expect(within(panel).getByText('+ - * / ^ %')).toBeInTheDocument()
+    expect(within(panel).getByText('Enter')).toBeInTheDocument()
+  })
 
-    // Scoped through the DOM rather than by role: <details> has no role in this
-    // ARIA mapping, and an unscoped search would match the picker, whose symbols
-    // include '+' and '%' too. Adding ARIA purely to make a query work would be
-    // shaping the markup around the test.
-    const legend = summary.parentElement
-    if (!legend) throw new Error('the shortcut summary has no container')
-    for (const key of ['+', 's', '*', '/', '^', 'r', '%', 'Enter', 'Esc']) {
-      expect(within(legend).getByText(key)).toBeInTheDocument()
-    }
+  it('names the history region', () => {
+    setup()
+
+    expect(screen.getByRole('region', { name: /history/i })).toBeInTheDocument()
+  })
+
+  it('renders exactly the keys the design specifies', () => {
+    setup()
+
+    // Guards against a key quietly disappearing from the grid in a refactor.
+    expect(shown().length).toBeGreaterThan(0)
+    expect(screen.getAllByRole('button', { name: /^[0-9]$/ })).toHaveLength(10)
   })
 })

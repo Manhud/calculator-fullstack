@@ -1,7 +1,7 @@
 import '@testing-library/jest-dom/vitest'
 import { cleanup } from '@testing-library/react'
 import { afterAll, afterEach, beforeAll } from 'vitest'
-import { server } from './server'
+import { resetRequests, server } from './server'
 
 beforeAll(() => {
   // A request no handler matches is an error rather than a silent pass-through,
@@ -12,6 +12,7 @@ beforeAll(() => {
 afterEach(() => {
   cleanup()
   server.resetHandlers()
+  resetRequests()
 })
 
 afterAll(() => server.close())
