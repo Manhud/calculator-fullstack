@@ -281,3 +281,26 @@ not just generation. Never leave it as "looks good".
 - **No speculative abstraction.** No interfaces with a single implementation "for testability" — the
   domain is already pure. No config system for two env vars.
 - Report failures honestly: if coverage drops or a test fails, say so with the output.
+
+---
+
+## 10. Delivery plan
+
+Ordered so each phase can be verified before the next depends on it: domain, then the adapter over it,
+then the UI against a contract that is already real. Each phase ends in one conventional commit, with
+its `docs/PROMPTS.md` entry in the same commit, after the matching reviewer in `.claude/agents/` has
+been run.
+
+| Phase | Scope | Status |
+| ----- | ----------------------------------------------------------------- | ------ |
+| 0 | Repository, conventions, Makefile, coverage gate, README, DESIGN.md | done |
+| 1 | `internal/calculator` — operations, sentinel errors, tests          | done |
+| 2 | `transport/http` and `cmd/api` — routes, mapping, middleware, server | done, reviewed |
+| 3 | Frontend — Vite, typed API client, `useCalculator`, `useKeyboard`, components | |
+| 4 | Frontend tests — Vitest, React Testing Library, MSW                 | |
+| 5 | Dockerfiles, compose, GitHub Actions                                | |
+| 6 | README setup and API examples, coverage reports, final clean-clone check | |
+
+The last item in Phase 6 is not paperwork: clone the repository into an empty directory and follow the
+README literally, `docker compose up` included. A submission that fails there has failed regardless of
+what the tests say locally.
