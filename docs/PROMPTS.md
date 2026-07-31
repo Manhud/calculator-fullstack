@@ -130,6 +130,59 @@ a pass.
 
 ---
 
+### 2026-07-31 — Phase 1: the domain package
+
+**Agent:** Claude Code (Opus 5)
+
+**Prompt:**
+
+> **Phase 1 — Go domain package.**
+>
+> Build `backend/internal/calculator` following CLAUDE.md Sections 2, 4 and 9. Write the failing tests
+> before the implementation.
+>
+> - `errors.go`: sentinel errors matchable with `errors.Is` — `ErrDivisionByZero`, `ErrNegativeSqrt`,
+>   `ErrResultNotFinite`, `ErrInvalidOperand`. No HTTP vocabulary; the transport layer maps these to
+>   codes, the domain does not know they exist.
+> - `calculator.go`: `Add`, `Subtract`, `Multiply`, `Divide`, `Power`, `Sqrt`, `Percentage`, each
+>   returning `(float64, error)`. Every operation validates that its operands are finite on the way in
+>   and rejects a `NaN` or `±Inf` result before returning it. `Percentage(a, b)` is "a percent of b",
+>   per the assumption recorded in DESIGN.md.
+> - Standard library only. No import from this repository, nothing transport-shaped.
+> - `calculator_test.go`: table-driven, named subtests, `t.Parallel()` where safe. Cover the happy
+>   path, division by zero including a negative-zero divisor, overflow in `Power`, `Sqrt` of a
+>   negative, non-finite operands arriving as input, and `1e308`-scale values at the boundary. Compare
+>   errors with `errors.Is`, never by string. Use a tolerance for inexact arithmetic and exact equality
+>   only where the result is exactly representable.
+>
+> Show me the proposed signatures and the test-case table before writing the implementation.
+>
+> Then run `make test-backend` and `make coverage`, and report the real numbers — the gate requires
+> 100% on this package.
+
+**Outcome:** 83 subtests, 100% statement coverage on the package, `gofmt` and `go vet` clean. The
+domain's entire import list is `errors` and `math`.
+
+**Human review:** Requiring the signatures and the case table before any implementation was the point
+of the prompt, and it earned its keep — three edge cases surfaced at that stage that I had to rule on
+rather than discover in the code: division by negative zero, the square root of negative zero, and
+`0**0`. I settled them as an error, zero, and one respectively, and they are recorded as assumptions in
+DESIGN.md. Each has its own test, because each is a place where a plausible implementation is wrong in
+a way the other tests would not catch: a guard written as `b == +0` returns `-Inf` for a negative-zero
+divisor, and `math.Signbit` in place of `x < 0` wrongly rejects the square root of negative zero.
+
+I pushed back on the tolerance instruction in my own prompt after the agent argued the opposite case.
+IEEE 754 arithmetic is deterministic, so `10.0/4.0` is exactly `2.5` everywhere and a tolerance would
+hide a behavioural change rather than absorb noise. Exact comparison is now the default, with a single
+epsilon assertion for the one expected value that is irrational, and a comment in the test file saying
+why it is the exception.
+
+The agent added one test I had not asked for and I kept it: `TestSentinelErrorsAreDistinct`. A
+copy-paste assigning the same error value to two sentinels would make the transport layer emit the
+wrong code on the wire, and no per-operation test would notice.
+
+---
+
 ## Where I overrode the agent
 
 1. **Keyboard input.** It argued the feature was out of scope and unrequested. I added it anyway, but
