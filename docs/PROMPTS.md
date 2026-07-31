@@ -459,6 +459,46 @@ mirrored into a ref and the request made outside the updater.
 
 ---
 
+### 2026-07-31 — Phase 5: containers and CI
+
+**Agent:** Claude Code (Opus 5)
+
+**Prompt:**
+
+> **Phase 5 — Docker and CI.**
+>
+> Multi-stage `Dockerfile` for each service: the API on distroless, the frontend built and served by
+> nginx. `docker-compose.yml` running both with a healthcheck the API actually answers, and the
+> frontend waiting on it rather than merely on the container existing. GitHub Actions running both test
+> suites, both linters, the coverage gate and a real `docker compose up`.
+>
+> Then build it, start it, and drive the running containers in a browser. A Dockerfile that has never
+> been run is not a deliverable.
+
+**Outcome:** API image 14.3 MB on distroless, frontend 77.4 MB on nginx. Both healthy under compose,
+and the app verified in a browser against the containers rather than against the dev servers.
+
+**Human review:** The healthcheck was the interesting constraint. Distroless has no shell, no `curl`
+and no `wget`, so there is nothing to write a `HEALTHCHECK` with — the usual answers are to fatten the
+image or to drop the check. Instead the binary probes itself: `api -healthcheck` requests `/health`
+over loopback and exits non-zero if it is not 200. Fifteen lines, and I checked both directions before
+trusting it — exit 0 with the server up, exit 1 with it down.
+
+`VITE_API_URL` is a build argument, not a runtime environment variable, because Vite inlines it into
+the bundle. That means it has to be the browser's view of the API and not the compose network's:
+`http://api:8080` would resolve only inside the network, where no browser runs. I verified the value
+actually reached the bundle by grepping the served JavaScript.
+
+One CI step was written and then rewritten. The first version asserted that the committed coverage
+report matched the code, by diffing `docs/coverage` after regenerating it. I tested that assumption
+instead of shipping it, and it was wrong: istanbul stamps a generation time into every HTML page, and
+Go's cover output records per-run hit counts that vary with parallel execution. The step would have
+failed on every single run. It now compares the coverage summary alone, which is stable, and the
+comment says why the HTML cannot be compared — a check that always fails is worse than no check,
+because people learn to ignore the red.
+
+---
+
 ## Where I overrode the agent
 
 1. **Keyboard input.** It argued the feature was out of scope and unrequested. I added it anyway, but

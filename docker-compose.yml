@@ -1,0 +1,38 @@
+# Runs both services with one command. The published ports match the ones the
+# development setup uses, so the README says the same thing either way.
+services:
+  api:
+    build:
+      context: ./backend
+    ports:
+      - '8080:8080'
+    environment:
+      PORT: '8080'
+      # The browser's origin, not the container's. The frontend is served from
+      # the published port below, and that is the Origin header the API sees.
+      ALLOWED_ORIGIN: 'http://localhost:5173'
+    healthcheck:
+      # The image is distroless, so the binary probes itself. See backend/Dockerfile.
+      test: ['CMD', '/api', '-healthcheck']
+      interval: 10s
+      timeout: 3s
+      start_period: 3s
+      retries: 3
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./frontend
+      args:
+        # Baked into the bundle at build time, so it has to be the address the
+        # browser can reach — 'http://api:8080' would resolve only inside the
+        # compose network, where no browser runs.
+        VITE_API_URL: 'http://localhost:8080'
+    ports:
+      - '5173:80'
+    depends_on:
+      api:
+        # Waits for the healthcheck, not merely for the container to exist: a
+        # started process that is not yet listening is not a dependency met.
+        condition: service_healthy
+    restart: unless-stopped

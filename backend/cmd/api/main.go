@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -28,6 +29,17 @@ const (
 
 func main() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
+
+	// The container image is distroless: no shell, no curl, nothing to write a
+	// HEALTHCHECK with. The binary checks itself instead, which keeps the image
+	// minimal without giving up the healthcheck.
+	if len(os.Args) > 1 && os.Args[1] == "-healthcheck" {
+		if err := probeHealth(envOr("PORT", defaultPort)); err != nil {
+			slog.Error("health probe failed", "error", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	// Registered before the listener opens, so a signal arriving during startup
 	// is not missed.
@@ -112,6 +124,22 @@ func serve(ctx context.Context, listener net.Listener, server *http.Server) erro
 		return err
 	}
 	slog.Info("stopped")
+	return nil
+}
+
+// probeHealth asks the running server whether it is healthy, over the loopback
+// interface. Used only by the container's HEALTHCHECK.
+func probeHealth(port string) error {
+	client := &http.Client{Timeout: 2 * time.Second}
+	response, err := client.Get("http://127.0.0.1:" + port + "/health")
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("health returned %d, want %d", response.StatusCode, http.StatusOK)
+	}
 	return nil
 }
 

@@ -1,5 +1,7 @@
 # Calculator
 
+[![CI](https://github.com/Manhud/calculator-fullstack/actions/workflows/ci.yml/badge.svg)](https://github.com/Manhud/calculator-fullstack/actions/workflows/ci.yml)
+
 A calculator split across two services: a Go REST API that owns the arithmetic, and a React +
 TypeScript frontend that consumes it.
 
@@ -44,6 +46,22 @@ scripts/    coverage.sh — renders the report and fails the build below thresho
 dependency rule, and the definition of done. It is committed on purpose — the constraints were set
 before the code, and it is the specification the review agents in `.claude/agents/` check against.
 
+## Running it
+
+**With Docker** — nothing to install but Docker itself:
+
+```bash
+docker compose up --build
+```
+
+Then open <http://localhost:5173>. The API is on <http://localhost:8080>.
+
+**Without Docker** — Go 1.23+ and Node 22 (`.nvmrc` pins it; `nvm use` picks it up):
+
+```bash
+make dev        # API on :8080, frontend on :5173
+```
+
 ## Commands
 
 ```bash
@@ -51,6 +69,7 @@ make help       # list every target
 make test       # both test suites
 make coverage   # regenerate docs/coverage/ and enforce the thresholds
 make lint       # gofmt, go vet, oxlint, tsc --noEmit
+make docker-up  # same as docker compose up --build
 ```
 
 ## AI usage

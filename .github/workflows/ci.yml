@@ -1,0 +1,136 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A new push to the same branch cancels the run it supersedes: nobody reads the
+# result of a commit that has already been replaced.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+
+      # gofmt reports by printing filenames and still exits 0, so the exit code
+      # has to be derived from its output or a misformatted file passes silently.
+      - name: gofmt
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "not formatted:"; echo "$unformatted"; exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      # -race here rather than locally by default: it is slower, and CI is where
+      # that cost is worth paying on every change.
+      - name: Tests
+        run: go test -race ./...
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # npm ci installs exactly the lockfile and fails if the two disagree.
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Types
+        run: npx tsc --noEmit
+
+      - name: Tests
+        run: npm test -- --run
+
+  coverage:
+    name: Coverage gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      # Exits non-zero when a threshold from CLAUDE.md Section 6 is missed, so
+      # coverage falling is a red build rather than a number in a log.
+      - name: Enforce thresholds
+        run: ./scripts/coverage.sh
+
+      # The committed report is a deliverable, so it must not drift from the code.
+      #
+      # Only the summary is compared. The HTML cannot be: istanbul stamps a
+      # generation time into every page, and Go's cover output records per-run
+      # hit counts that vary with parallel test execution — a diff over those
+      # would fail on every single run, which is worse than no check at all.
+      # This was verified by regenerating twice without touching any code.
+      - name: Committed coverage matches the code
+        run: |
+          if ! git diff --quiet -- docs/coverage/frontend/coverage-summary.json; then
+            echo "Coverage has changed — run 'make coverage' and commit docs/coverage"
+            git diff -- docs/coverage/frontend/coverage-summary.json
+            exit 1
+          fi
+
+  docker:
+    name: Container images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Builds both images and starts the stack, so a broken Dockerfile fails
+      # here rather than on the reviewer's machine.
+      - name: Build and start
+        run: docker compose up --build --detach --wait
+
+      - name: The API answers
+        run: |
+          curl --fail --silent http://localhost:8080/health
+          curl --fail --silent -X POST http://localhost:8080/api/v1/calculations \
+            -H 'Content-Type: application/json' \
+            -d '{"operation":"divide","operands":[10,4]}' | grep -q '"result":2.5'
+
+      - name: The frontend is served
+        run: curl --fail --silent --output /dev/null http://localhost:5173/
+
+      - name: Stop
+        if: always()
+        run: docker compose down --volumes
