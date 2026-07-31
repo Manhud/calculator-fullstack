@@ -50,12 +50,13 @@ state management libraries, keybinding libraries (`react-hotkeys`, `mousetrap`, 
 │   └── Dockerfile
 ├── frontend/
 │   ├── src/
-│   │   ├── api/                     # HTTP client + typed DTOs (only place fetch is called)
+│   │   ├── api/                     # client + typed DTOs (only place fetch is called)
 │   │   ├── components/              # presentational, no fetch
-│   │   ├── hooks/                   # useCalculator: state machine for the request lifecycle
+│   │   ├── hooks/                   # useCalculator (request lifecycle), useKeyboard
 │   │   ├── domain/                  # operation metadata, client-side validation rules
+│   │   ├── test/                    # Vitest setup and the MSW handlers
 │   │   └── App.tsx
-│   ├── tests/
+│   ├── .oxlintrc.json               # jsx-a11y and react rules, as build failures
 │   ├── package.json
 │   └── Dockerfile
 ├── docs/
@@ -219,10 +220,14 @@ it never rounds before sending.
      accelerator, never the only path.
   5. The shortcuts are discoverable: a visible legend, and `aria-keyshortcuts` on the matching button.
      An invisible shortcut is not a feature.
-- Tests: Vitest + React Testing Library. Query by role/label, never by class name or test-id-only.
-  Mock at the `src/api` boundary with MSW or a stubbed client — never mock `fetch` globally.
-  Drive the keyboard with `userEvent.keyboard()`, not synthetic `fireEvent` — it is the only way the
-  focus and modifier rules above are actually exercised.
+- Tests: Vitest + React Testing Library, colocated as `*.test.ts(x)` beside the code they cover.
+  Query by role or label, never by class name or a test id standing in for a missing label.
+  Mock at the network boundary with **MSW**, never by replacing the client module: stubbing
+  `calculate` would leave the mapping from a response body to an outcome — the piece most likely to
+  break — untested, and would let an envelope change pass the whole suite.
+  Drive the keyboard with `userEvent`, not `fireEvent`. `fireEvent` dispatches synthetic events that
+  carry no focus and no modifier state, so a bail-out rule can be absent entirely and its test still
+  pass.
 
 ---
 
@@ -231,8 +236,9 @@ it never rounds before sending.
 A task is done when **all** of these hold:
 
 - [ ] `make test` passes (backend + frontend)
-- [ ] `make coverage` regenerates `docs/coverage/` and backend statement coverage ≥ 85%,
-      with `internal/calculator` at 100%
+- [ ] `make coverage` regenerates `docs/coverage/` and enforces: backend statements ≥ 85% with
+      `internal/calculator` at 100%, frontend statements ≥ 85%. The script exits non-zero on a miss,
+      so this is a build failure rather than a number to read.
 - [ ] `gofmt -l .` and `go vet ./...` produce no output; `npm run lint` and `tsc --noEmit` are clean
 - [ ] Every error code in Section 3 has a test that provokes it
 - [ ] Every key in the Section 5 table has a test, plus the three bail-outs (modifier held, foreign target,

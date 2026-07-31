@@ -363,6 +363,58 @@ README were corrected instead.
 
 ---
 
+### 2026-07-31 — Phase 4: the frontend test suite
+
+**Agent:** Claude Code (Opus 5)
+
+**Prompt:**
+
+> **Phase 4 — Frontend tests.**
+>
+> Vitest, React Testing Library and MSW, following CLAUDE.md Sections 5 and 6.
+>
+> - Mock at the network boundary with MSW, never by replacing the client module. Stubbing `calculate`
+>   would leave the mapping from a response body to an outcome untested, which is the piece most likely
+>   to break.
+> - Cover the client: a success body, an error envelope for a 400, a 404, a 405 and a 500, a network
+>   failure, a body that is not JSON, a body missing `result`, and an error code outside the contract.
+> - Cover `useCalculator`: the state machine, a client error, a server error replacing a client error,
+>   and the race — a slow answer arriving after the user has changed the input must be discarded.
+> - Cover the keyboard against the Section 5 table: every key, plus the three bail-outs (modifier held,
+>   foreign text control, `isComposing`) and one proving digits, `.` and `-` still reach the focused
+>   field. Drive it with `userEvent`, never `fireEvent`.
+> - Add the two regressions found by running the app: shortcuts must work with focus on `<body>`, and
+>   focus must survive a calculation.
+> - Query by role and label. Wire the frontend coverage into `make coverage` with a threshold that
+>   fails the build.
+>
+> Then run `make test`, `make lint` and `make coverage`, and report the real numbers.
+
+**Outcome:** 77 frontend tests. Statements 95.7%, functions and lines 100%. `make test`, `make lint`
+and `make coverage` now pass across both layers for the first time.
+
+**Human review:** The suite found a real defect in code I had already reviewed by eye. The client
+detected an aborted request with `error instanceof DOMException`, which is false under jsdom — the
+exception undici throws is a `DOMException` named `AbortError` for which that check fails, because the
+class is realm-specific. So a deliberate abort was being reported as a network failure. It matches on
+the name and the signal now. The browser would have hidden this; the test environment exposed it.
+
+Three findings came from the linter's vitest rules rather than from me. Two tests wrapped an
+expectation in an `if` that narrowed a union — which passes silently whenever the condition is false,
+and is exactly the "test that passes for the wrong reason" the definition of done warns about. Both
+were rewritten to assert the whole object at once.
+
+One assertion is scoped through the DOM rather than by role, and the comment says why: `<details>` has
+no role in this ARIA mapping, and `<fieldset>` already claims `group`, so an unscoped query matched the
+operation picker — whose symbols include `+` and `%` too. Adding ARIA purely to make a query work would
+have been shaping the markup around the test.
+
+One test dispatches a raw `KeyboardEvent`, the only place in the suite that does. `userEvent` has no
+composition API, and the `isComposing` rule cannot be exercised any other way. It is annotated rather
+than left to look like carelessness.
+
+---
+
 ## Where I overrode the agent
 
 1. **Keyboard input.** It argued the feature was out of scope and unrequested. I added it anyway, but

@@ -87,7 +87,15 @@ export async function calculate(
     })
   } catch (error) {
     // An aborted request is not a failure to report; the caller discarded it.
-    if (error instanceof DOMException && error.name === 'AbortError') throw error
+    //
+    // Matched by name and by the signal rather than with `instanceof
+    // DOMException`. That class is realm-specific: under jsdom the exception
+    // undici throws is a DOMException named AbortError for which `instanceof
+    // DOMException` is false, so the narrower check turned a deliberate abort
+    // into a reported network failure.
+    if (signal?.aborted || (error instanceof Error && error.name === 'AbortError')) {
+      throw error
+    }
     return {
       status: 'failure',
       code: 'NETWORK_ERROR',

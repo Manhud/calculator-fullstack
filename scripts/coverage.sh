@@ -8,10 +8,12 @@ set -euo pipefail
 
 MIN_TOTAL=85
 MIN_DOMAIN=100
+MIN_FRONTEND=85
 DOMAIN_PATH="internal/calculator"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BACKEND="${REPO_ROOT}/backend"
+FRONTEND="${REPO_ROOT}/frontend"
 REPORT_DIR="${REPO_ROOT}/docs/coverage"
 
 mkdir -p "${REPORT_DIR}"
@@ -43,6 +45,16 @@ statement_coverage() {
 total_pct=$(statement_coverage "")
 domain_pct=$(statement_coverage "${DOMAIN_PATH}/")
 
+# Vitest writes its own HTML report into docs/coverage/frontend. The summary is
+# read from the v8 JSON so the threshold is enforced here rather than trusted to
+# a config file nobody looks at.
+cd "${FRONTEND}"
+npm run --silent test:coverage -- --coverage.reporter=json-summary --coverage.reporter=html >/dev/null
+frontend_pct=$(node -e '
+  const summary = require("../docs/coverage/frontend/coverage-summary.json");
+  process.stdout.write(summary.total.statements.pct.toFixed(1));
+' 2>/dev/null || echo "none")
+
 # A domain package that reports "none" has no measured statements at all, which
 # means the package or its tests are missing — not that it is trivially perfect.
 fail=0
@@ -64,8 +76,9 @@ echo
 echo "Coverage gate — thresholds from CLAUDE.md Section 6"
 report "total (backend)" "${total_pct}" "${MIN_TOTAL}"
 report "${DOMAIN_PATH}" "${domain_pct}" "${MIN_DOMAIN}"
+report "frontend" "${frontend_pct}" "${MIN_FRONTEND}"
 echo
-echo "  report: docs/coverage/backend.html"
+echo "  reports: docs/coverage/backend.html · docs/coverage/frontend/index.html"
 echo
 
 if [ "${fail}" -ne 0 ]; then
