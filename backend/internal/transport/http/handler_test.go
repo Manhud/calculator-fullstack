@@ -25,24 +25,72 @@ func do(t *testing.T, method, target, body string) *httptest.ResponseRecorder {
 	return rec
 }
 
-func decodeSuccess(t *testing.T, rec *httptest.ResponseRecorder) calculationResponse {
-	t.Helper()
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d (body: %s)", rec.Code, http.StatusOK, rec.Body.String())
-	}
-	var got calculationResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
-		t.Fatalf("response is not valid JSON: %v (body: %s)", err, rec.Body.String())
-	}
-	return got
+// body returns the response with trailing whitespace removed, for comparison
+// against a literal.
+func body(rec *httptest.ResponseRecorder) string {
+	return strings.TrimSpace(rec.Body.String())
 }
 
-func decodeError(t *testing.T, rec *httptest.ResponseRecorder) errorResponse {
-	t.Helper()
-	// Every client fault is 400 per the contract; asserting it on each case is
-	// what stops a handler drifting to 422 or 500 unnoticed.
+// The envelope is asserted against literal JSON rather than by decoding into the
+// structs that produced it. Round-tripping through calculationResponse proves
+// only that the encoder and decoder agree: rename the `result` tag to `value`
+// and every client breaks while such a test stays green.
+func TestSuccessEnvelopeIsExactlyTheContract(t *testing.T) {
+	t.Parallel()
+	rec := post(t, `{"operation":"divide","operands":[10,4]}`)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	const want = `{"operation":"divide","operands":[10,4],"result":2.5}`
+	if got := body(rec); got != want {
+		t.Errorf("body = %s\nwant     %s", got, want)
+	}
+}
+
+func TestErrorEnvelopeIsExactlyTheContract(t *testing.T) {
+	t.Parallel()
+	rec := post(t, `{"operation":"divide","operands":[10,0]}`)
+
 	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d (body: %s)", rec.Code, http.StatusBadRequest, rec.Body.String())
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+	const want = `{"error":{"code":"DIVISION_BY_ZERO","message":"cannot divide by zero"}}`
+	if got := body(rec); got != want {
+		t.Errorf("body = %s\nwant     %s", got, want)
+	}
+}
+
+// A success response carries no error key and an error response carries no
+// result key, so a client can branch on presence without a sentinel value.
+func TestEnvelopesDoNotOverlap(t *testing.T) {
+	t.Parallel()
+	success := decodeRaw(t, post(t, `{"operation":"add","operands":[1,2]}`))
+	if _, present := success["error"]; present {
+		t.Error("success response carries an error key")
+	}
+
+	failure := decodeRaw(t, post(t, `{"operation":"divide","operands":[1,0]}`))
+	for _, key := range []string{"result", "operation", "operands"} {
+		if _, present := failure[key]; present {
+			t.Errorf("error response carries a %q key", key)
+		}
+	}
+}
+
+func decodeRaw(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
+	t.Helper()
+	var raw map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("response is not valid JSON: %v (body: %s)", err, rec.Body.String())
+	}
+	return raw
+}
+
+func decodeError(t *testing.T, rec *httptest.ResponseRecorder, wantStatus int) errorResponse {
+	t.Helper()
+	if rec.Code != wantStatus {
+		t.Fatalf("status = %d, want %d (body: %s)", rec.Code, wantStatus, rec.Body.String())
 	}
 	var got errorResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
@@ -69,7 +117,14 @@ func TestCalculateSuccess(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got := decodeSuccess(t, post(t, tc.body))
+			rec := post(t, tc.body)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want %d (body: %s)", rec.Code, http.StatusOK, rec.Body.String())
+			}
+			var got calculationResponse
+			if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+				t.Fatalf("not valid JSON: %v", err)
+			}
 			if got.Result != tc.want {
 				t.Errorf("result = %v, want %v", got.Result, tc.want)
 			}
@@ -77,21 +132,16 @@ func TestCalculateSuccess(t *testing.T) {
 	}
 }
 
-// The response echoes the request, so a client can match a reply to what it sent.
-func TestCalculateEchoesTheRequest(t *testing.T) {
+// Negative zero serialises as "-0", so this is only visible in the encoded body.
+func TestSqrtOfZeroDoesNotSerialiseNegativeZero(t *testing.T) {
 	t.Parallel()
-	got := decodeSuccess(t, post(t, `{"operation":"divide","operands":[10,4]}`))
-	if got.Operation != "divide" {
-		t.Errorf("operation = %q, want %q", got.Operation, "divide")
-	}
-	if len(got.Operands) != 2 || got.Operands[0] != 10 || got.Operands[1] != 4 {
-		t.Errorf("operands = %v, want [10 4]", got.Operands)
+	if got := body(post(t, `{"operation":"sqrt","operands":[-0.0]}`)); strings.Contains(got, `"result":-0`) {
+		t.Errorf("body = %s, want the result without a negative sign", got)
 	}
 }
 
-// Every code in the Section 3 table, each provoked by a request that a client
-// could actually send. INVALID_OPERAND appears twice because it is reachable by
-// two different decoder failures.
+// Every code in the Section 3 table, each provoked by a request a client could
+// actually send.
 func TestErrorCodes(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -105,9 +155,20 @@ func TestErrorCodes(t *testing.T) {
 		{name: "Infinity is not JSON syntax", body: `{"operation":"add","operands":[Infinity,1]}`, want: codeInvalidJSON},
 		{name: "unknown field", body: `{"operation":"add","operands":[1,2],"extra":true}`, want: codeInvalidJSON},
 
+		// Valid JSON, but not an object. The type error carries no field name,
+		// so calling it a bad operand would name something the body lacks.
+		{name: "array at the top level", body: `[1,2]`, want: codeInvalidJSON},
+		{name: "string at the top level", body: `"hello"`, want: codeInvalidJSON},
+		{name: "number at the top level", body: `123`, want: codeInvalidJSON},
+
+		// Decode stops after one value; the rest must not be discarded silently.
+		{name: "trailing garbage", body: `{"operation":"add","operands":[1,2]} nonsense`, want: codeInvalidJSON},
+		{name: "two objects", body: `{"operation":"add","operands":[1,2]}{"operation":"add","operands":[3,4]}`, want: codeInvalidJSON},
+
 		{name: "unknown operation", body: `{"operation":"modulo","operands":[1,2]}`, want: codeUnknownOperation},
 		{name: "empty operation", body: `{"operation":"","operands":[1,2]}`, want: codeUnknownOperation},
 		{name: "operation of the wrong type", body: `{"operation":5,"operands":[1,2]}`, want: codeUnknownOperation},
+		{name: "null decodes to the zero struct", body: `null`, want: codeUnknownOperation},
 
 		{name: "too few operands", body: `{"operation":"add","operands":[1]}`, want: codeInvalidArity},
 		{name: "too many operands", body: `{"operation":"add","operands":[1,2,3]}`, want: codeInvalidArity},
@@ -116,7 +177,6 @@ func TestErrorCodes(t *testing.T) {
 		{name: "operands empty", body: `{"operation":"add","operands":[]}`, want: codeInvalidArity},
 		{name: "sqrt given two operands", body: `{"operation":"sqrt","operands":[9,2]}`, want: codeInvalidArity},
 
-		// Syntactically valid JSON, but not a number the API can use.
 		{name: "non-numeric operand", body: `{"operation":"add","operands":["a",1]}`, want: codeInvalidOperand},
 		{name: "operand out of float64 range", body: `{"operation":"add","operands":[1e400,1]}`, want: codeInvalidOperand},
 
@@ -131,19 +191,23 @@ func TestErrorCodes(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got := decodeError(t, post(t, tc.body))
+			rec := post(t, tc.body)
+			got := decodeError(t, rec, http.StatusBadRequest)
 			if got.Error.Code != tc.want {
 				t.Errorf("code = %q, want %q (message: %q)", got.Error.Code, tc.want, got.Error.Message)
 			}
 			if got.Error.Message == "" {
 				t.Error("message is empty; the code needs a human-readable companion")
 			}
+			if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+				t.Errorf("Content-Type = %q, want application/json", ct)
+			}
 		})
 	}
 }
 
-// Asserts the closed set itself: the table above must provoke every code, and
-// the handler must never emit one outside it.
+// Asserts the closed set itself: every client-fault code must be provoked by a
+// real request, and the handler must never emit one outside the table.
 func TestEveryContractCodeIsCovered(t *testing.T) {
 	t.Parallel()
 	contract := map[string]bool{
@@ -160,10 +224,10 @@ func TestEveryContractCodeIsCovered(t *testing.T) {
 		`{"operation":"sqrt","operands":[-1]}`,
 		`{"operation":"power","operands":[10,400]}`,
 	}
-	for _, body := range bodies {
-		code := decodeError(t, post(t, body)).Error.Code
+	for _, b := range bodies {
+		code := decodeError(t, post(t, b), http.StatusBadRequest).Error.Code
 		if _, ok := contract[code]; !ok {
-			t.Fatalf("handler emitted %q, which is not in the Section 3 table", code)
+			t.Fatalf("handler emitted %q, which is not in the Section 3 client-fault table", code)
 		}
 		contract[code] = true
 	}
@@ -175,9 +239,9 @@ func TestEveryContractCodeIsCovered(t *testing.T) {
 }
 
 // ErrInvalidOperand cannot be reached over HTTP: encoding/json rejects
-// out-of-range numbers before the domain sees them. The mapping is still
-// verified, directly, so the branch is covered by a real assertion rather than
-// by a request that cannot be constructed.
+// out-of-range numbers before the domain sees them. The mapping is verified
+// directly, so the branch is covered by a real assertion rather than by a
+// request that cannot be constructed.
 func TestErrorFromMapsEverySentinel(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -193,19 +257,27 @@ func TestErrorFromMapsEverySentinel(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			if got := errorFrom(tc.err).code; got != tc.want {
-				t.Errorf("code = %q, want %q", got, tc.want)
+			got := errorFrom(tc.err)
+			if got.code != tc.want {
+				t.Errorf("code = %q, want %q", got.code, tc.want)
+			}
+			if got.status != http.StatusBadRequest {
+				t.Errorf("status = %d, want %d", got.status, http.StatusBadRequest)
 			}
 		})
 	}
 }
 
-func TestErrorFromUnmappedError(t *testing.T) {
+// An error the domain does not define is a bug in this service. Reporting it as
+// a client fault would send the caller off to fix input that was never wrong.
+func TestErrorFromUnmappedErrorIsAServerFault(t *testing.T) {
 	t.Parallel()
-	// An error the domain does not define must still produce a code from the
-	// closed set rather than escaping as a success.
-	if got := errorFrom(errStub{}).code; got != codeInvalidOperand {
-		t.Errorf("code = %q, want %q", got, codeInvalidOperand)
+	got := errorFrom(errStub{})
+	if got.code != codeInternalError {
+		t.Errorf("code = %q, want %q", got.code, codeInternalError)
+	}
+	if got.status != http.StatusInternalServerError {
+		t.Errorf("status = %d, want %d", got.status, http.StatusInternalServerError)
 	}
 }
 
@@ -216,25 +288,53 @@ func (errStub) Error() string { return "something the domain does not define" }
 func TestRequestBodyTooLarge(t *testing.T) {
 	t.Parallel()
 	operands := strings.Repeat("1,", 5000) + "1"
-	got := decodeError(t, post(t, `{"operation":"add","operands":[`+operands+`]}`))
-	if got.Error.Code != codeInvalidJSON {
-		t.Errorf("code = %q, want %q", got.Error.Code, codeInvalidJSON)
+	rec := post(t, `{"operation":"add","operands":[`+operands+`]}`)
+	if got := decodeError(t, rec, http.StatusBadRequest).Error.Code; got != codeInvalidJSON {
+		t.Errorf("code = %q, want %q", got, codeInvalidJSON)
 	}
 }
 
-func TestMethodNotAllowed(t *testing.T) {
+// The size limit must hold in the configuration that actually runs, not only
+// against the bare mux: MaxBytesReader inspects the ResponseWriter it is given,
+// and the deployed one is wrapped by middleware.
+func TestRequestBodyTooLargeThroughTheMiddlewareChain(t *testing.T) {
 	t.Parallel()
-	rec := do(t, http.MethodGet, "/api/v1/calculations", "")
-	if rec.Code != http.StatusMethodNotAllowed {
-		t.Errorf("status = %d, want %d", rec.Code, http.StatusMethodNotAllowed)
+	chain := Chain(NewHandler().Routes(), Recover, Logging, CORS("http://localhost:5173"))
+	operands := strings.Repeat("1,", 5000) + "1"
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/calculations",
+		strings.NewReader(`{"operation":"add","operands":[`+operands+`]}`))
+	rec := httptest.NewRecorder()
+	chain.ServeHTTP(rec, req)
+
+	if got := decodeError(t, rec, http.StatusBadRequest).Error.Code; got != codeInvalidJSON {
+		t.Errorf("code = %q, want %q", got, codeInvalidJSON)
 	}
 }
 
-func TestUnknownRoute(t *testing.T) {
+// A JSON API that answers in text/plain forces every client to guess the content
+// type before parsing. The mux does that by default for both of these.
+func TestMethodNotAllowedIsJSON(t *testing.T) {
+	t.Parallel()
+	rec := do(t, http.MethodPut, "/api/v1/calculations", "")
+	got := decodeError(t, rec, http.StatusMethodNotAllowed)
+	if got.Error.Code != codeMethodNotAllowed {
+		t.Errorf("code = %q, want %q", got.Error.Code, codeMethodNotAllowed)
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+		t.Errorf("Content-Type = %q, want application/json", ct)
+	}
+}
+
+func TestUnknownRouteIsJSON(t *testing.T) {
 	t.Parallel()
 	rec := do(t, http.MethodPost, "/api/v1/nope", `{}`)
-	if rec.Code != http.StatusNotFound {
-		t.Errorf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	got := decodeError(t, rec, http.StatusNotFound)
+	if got.Error.Code != codeNotFound {
+		t.Errorf("code = %q, want %q", got.Error.Code, codeNotFound)
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+		t.Errorf("Content-Type = %q, want application/json", ct)
 	}
 }
 
@@ -244,26 +344,11 @@ func TestHealth(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
-	var body map[string]string
-	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-		t.Fatalf("not valid JSON: %v", err)
+	if got := body(rec); got != `{"status":"ok"}` {
+		t.Errorf("body = %s, want %s", got, `{"status":"ok"}`)
 	}
-	if body["status"] != "ok" {
-		t.Errorf("status = %q, want %q", body["status"], "ok")
-	}
-}
-
-func TestResponsesAreJSON(t *testing.T) {
-	t.Parallel()
-	for _, target := range []string{"/health"} {
-		rec := do(t, http.MethodGet, target, "")
-		if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
-			t.Errorf("%s Content-Type = %q, want application/json", target, ct)
-		}
-	}
-	rec := post(t, `{"operation":"add","operands":[1,2]}`)
 	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
-		t.Errorf("calculations Content-Type = %q, want application/json", ct)
+		t.Errorf("Content-Type = %q, want application/json", ct)
 	}
 }
 
@@ -283,9 +368,9 @@ func (w *failingWriter) Header() http.Header {
 func (w *failingWriter) WriteHeader(status int)    { w.status = status }
 func (w *failingWriter) Write([]byte) (int, error) { return 0, errStub{} }
 
-// The status and headers are already sent by the time encoding fails, so there
-// is no correcting the response. What must not happen is a second write
-// appending a broken body to the first.
+// The status and headers are already sent by the time encoding fails, so the
+// response cannot be corrected. What must not happen is a second write appending
+// a broken body to the first.
 func TestWriteJSONSurvivesAFailedEncode(t *testing.T) {
 	t.Parallel()
 	w := &failingWriter{}
@@ -307,9 +392,33 @@ func TestSupportedOperationsIsStable(t *testing.T) {
 			t.Fatalf("supportedOperations() = %q on call %d, want %q", got, i, first)
 		}
 	}
-	for name := range operations {
+	for name := range newRegistry() {
 		if !strings.Contains(first, name) {
 			t.Errorf("%q is missing from %q", name, first)
+		}
+	}
+}
+
+// Every operation in the registry must be reachable and must agree with the
+// arity the contract states.
+func TestRegistryMatchesTheContract(t *testing.T) {
+	t.Parallel()
+	wantArity := map[string]int{
+		"add": 2, "subtract": 2, "multiply": 2, "divide": 2,
+		"power": 2, "percentage": 2, "sqrt": 1,
+	}
+	registry := newRegistry()
+	if len(registry) != len(wantArity) {
+		t.Fatalf("registry has %d operations, want %d", len(registry), len(wantArity))
+	}
+	for name, arity := range wantArity {
+		op, ok := registry[name]
+		if !ok {
+			t.Errorf("%q is missing from the registry", name)
+			continue
+		}
+		if op.arity != arity {
+			t.Errorf("%q arity = %d, want %d", name, op.arity, arity)
 		}
 	}
 }

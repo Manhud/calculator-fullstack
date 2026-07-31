@@ -16,7 +16,9 @@ handler and test file.
 
 **Errors are codes, not prose.** Every client fault returns a machine-readable code —
 `DIVISION_BY_ZERO`, `NEGATIVE_SQRT`, `RESULT_OVERFLOW` and four others — alongside a human message.
-The frontend branches on the code and never parses the message.
+The frontend branches on the code and never parses the message. A fault in the service itself is
+`INTERNAL_ERROR` with a 500, kept distinct so a bug here is never reported as the caller's mistake.
+Every error response uses that envelope, including the router's 404 and 405.
 
 **The domain knows nothing about HTTP.** `internal/calculator` imports no transport, no JSON and no
 framework, so the arithmetic is tested without starting a server. Dependencies point inward.

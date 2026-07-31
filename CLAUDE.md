@@ -108,15 +108,31 @@ Error — `400 Bad Request` (validation/domain) or `422` never; keep it simple, 
 
 **Error codes (exhaustive):**
 
-| Code                | Cause                                        |
-| ------------------- | -------------------------------------------- |
-| `INVALID_JSON`      | Body is not valid JSON                       |
-| `UNKNOWN_OPERATION` | `operation` not in the allowed set           |
-| `INVALID_ARITY`     | Wrong number of operands for that operation  |
-| `INVALID_OPERAND`   | NaN, ±Inf, or non-numeric operand            |
-| `DIVISION_BY_ZERO`  | Divisor is 0                                 |
-| `NEGATIVE_SQRT`     | `sqrt` of a negative number                  |
-| `RESULT_OVERFLOW`   | Result is ±Inf or NaN after computing        |
+| Code                | Status | Cause                                                        |
+| ------------------- | ------ | ------------------------------------------------------------ |
+| `INVALID_JSON`      | 400    | Body is not valid JSON, is not an object, or holds more than one value |
+| `UNKNOWN_OPERATION` | 400    | `operation` not in the allowed set                           |
+| `INVALID_ARITY`     | 400    | Wrong number of operands for that operation                  |
+| `INVALID_OPERAND`   | 400    | NaN, ±Inf, or non-numeric operand                            |
+| `DIVISION_BY_ZERO`  | 400    | Divisor is 0                                                 |
+| `NEGATIVE_SQRT`     | 400    | `sqrt` of a negative number                                  |
+| `RESULT_OVERFLOW`   | 400    | Result is ±Inf or NaN after computing                        |
+| `NOT_FOUND`         | 404    | No such endpoint                                             |
+| `METHOD_NOT_ALLOWED`| 405    | Endpoint exists but not for that method                      |
+| `INTERNAL_ERROR`    | 500    | A fault in this service: a panic, or a domain error with no mapping |
+
+The first seven are faults in the request body and all answer 400 — splitting them across 400 and 422
+would add a distinction no client acts on, since the code carries the meaning. `NOT_FOUND` and
+`METHOD_NOT_ALLOWED` are about the request line rather than the body, and take the status that already
+means exactly that.
+
+`INTERNAL_ERROR` is the only server fault. It exists so a bug here is never reported as the client's
+mistake — telling a caller its operands were invalid when the failure was ours sends it to fix input
+that was never wrong.
+
+**Every 4xx and 5xx response this service produces uses this envelope**, including the router's. A
+`ServeMux` answers `text/plain` by default, and a JSON API that sometimes does not forces every client
+to sniff the content type before parsing.
 
 ### `GET /health`
 

@@ -169,10 +169,30 @@ func TestPercentage(t *testing.T) {
 		{name: "negative percentage", a: -10, b: 200, want: -20},
 		{name: "zero percent", a: 0, b: 200, want: 0},
 		{name: "overflow", a: math.MaxFloat64, b: math.MaxFloat64, wantErr: ErrResultNotFinite},
-		// Dividing before multiplying keeps a representable answer representable:
-		// 200 * 1e307 overflows, (200/100) * 1e307 does not.
-		{name: "large operand without spurious overflow", a: 200, b: 1e307, want: 2e307},
+		// Multiplying first is exact here; dividing first gives
+		// 0.010000000000000002. This case is the reason for the order.
+		{name: "exact in the ordinary case", a: 10, b: 0.1, want: 0.01},
+		{name: "small percentage of a small value", a: 5, b: 0.2, want: 0.01},
+		// The product overflows while the answer is representable, so the
+		// fallback order runs. Without it this would report an overflow.
+		{name: "product overflows but the answer does not", a: 200, b: 1e307, want: 2e307},
 	})
+}
+
+// -0.0 compares equal to 0.0, so a table assertion of `want: 0` cannot see a
+// negative zero escaping. It matters because it serialises as "-0" and reaches
+// the user's screen.
+func TestSqrtNeverReturnsNegativeZero(t *testing.T) {
+	t.Parallel()
+	for _, x := range []float64{0, math.Copysign(0, -1)} {
+		got, err := Sqrt(x)
+		if err != nil {
+			t.Fatalf("Sqrt(%v) returned %v", x, err)
+		}
+		if math.Signbit(got) {
+			t.Errorf("Sqrt(%v) = %v, which carries a negative sign bit", x, got)
+		}
+	}
 }
 
 // Every operation refuses NaN and ±Inf on input, in either position. Driven from

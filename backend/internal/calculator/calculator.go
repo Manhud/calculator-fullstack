@@ -86,16 +86,33 @@ func Sqrt(x float64) (float64, error) {
 	if x < 0 {
 		return 0, ErrNegativeSqrt
 	}
-	return checkResult(math.Sqrt(x))
+	root := math.Sqrt(x)
+	// math.Sqrt(-0.0) is -0.0. It compares equal to zero, so a test asserting
+	// `want: 0` passes, but it serialises as "-0" and reaches the user's screen
+	// that way. Normalising here keeps the sign out of the response.
+	if root == 0 {
+		return 0, nil
+	}
+	return checkResult(root)
 }
 
 // Percentage returns percent percent of the value: Percentage(50, 200) is 100.
 //
-// Dividing before multiplying keeps a representable answer representable —
-// 200 * 1e307 overflows to +Inf, while (200 / 100) * 1e307 does not.
+// Multiplying before dividing is the accurate order for ordinary inputs:
+// 10 * 0.1 / 100 is exactly 0.01, while (10 / 100) * 0.1 is 0.010000000000000002,
+// because dividing first rounds a value that is then multiplied.
+//
+// It only fails at the extremes, where the product overflows although the answer
+// is representable — 200 * 1e307 is +Inf, but 200% of 1e307 is not. Rather than
+// trading everyday precision for that case, fall back to the other order when
+// the product overflows. Both are exercised by tests.
 func Percentage(percent, of float64) (float64, error) {
 	if err := checkOperands(percent, of); err != nil {
 		return 0, err
 	}
-	return checkResult(percent / 100 * of)
+	product := percent * of
+	if math.IsInf(product, 0) {
+		return checkResult(percent / 100 * of)
+	}
+	return checkResult(product / 100)
 }

@@ -251,6 +251,54 @@ that `go test` was perfectly happy with.
 
 ---
 
+### 2026-07-31 — Backend review, and what it found
+
+**Agent:** Claude Code (Opus 5), running the `backend-reviewer` checklist
+
+**Prompt:** the contents of `.claude/agents/backend-reviewer.md`, scoped to `backend/`.
+
+**Outcome:** Twelve findings and a list of coverage gaps. Ten were real. The three that mattered most:
+
+- **The response tests were tautologies.** They decoded each response into the same struct that had
+  encoded it, so renaming a JSON tag would have broken every client with the suite still green. The
+  entire Section 3 envelope was unprotected. It is now asserted against literal JSON.
+- **`Decode` reads one value and stops.** A body of `{...}{...}` or `{...} junk` returned 200 and
+  discarded the remainder silently.
+- **A top-level type mismatch carries no field name**, so `[1,2]` was reported as `INVALID_OPERAND`
+  with the message "operands must be finite numbers" — naming a field the body does not contain.
+
+**Human review:** Two findings were about decisions I had defended, and the reviewer was right on
+both. I had argued for dividing before multiplying in `Percentage` to protect against an overflow at
+1e307; the reviewer pointed out that this costs precision in the ordinary case — 10% of 0.1 returned
+`0.010000000000000002` — and that I had traded an everyday input for one nobody types. It now
+multiplies first and falls back to the other order only when the product overflows, so neither case
+loses. And `sqrt(-0.0)` was returning negative zero, which reaches the screen as `-0`; my test asserted
+`want: 0` and passed, because `-0.0 == 0.0` in Go. Only the encoded body shows it.
+
+It also caught my own test lying. `TestRunServesAndShutsDownOnContextCancel` closed its request
+*before* cancelling the context, so nothing was ever in flight — replacing `Shutdown` with
+`listener.Close()` would have passed it. I had claimed in the Phase 2 commit message that it verified
+draining. It did not. `serve` is now separated from `run` so a test can hold a handler open across the
+cancellation and prove the in-flight response completes.
+
+I rejected one finding. It argued that `{"operation":5}` should be `INVALID_JSON`; I kept
+`UNKNOWN_OPERATION`, because the rule I want is that a malformed *document* is a JSON fault while a
+wrongly-typed *field* is that field's fault, and a number is certainly not one of the seven operations.
+I also set aside its last finding — the missing `Dockerfile` and the README without setup instructions
+— as phase ordering rather than neglect.
+
+Fixing its complaint about misattributed codes exposed one I had just written myself: my new 404 and
+405 responses used `INVALID_JSON`, and "no such endpoint" has nothing to do with JSON. `NOT_FOUND` and
+`METHOD_NOT_ALLOWED` were added to the contract for the same reason `INTERNAL_ERROR` was.
+
+Three contract changes came out of this, each applied to Section 3, the README and DESIGN.md in the
+same commit: `INTERNAL_ERROR` at 500 for a panic or an unmapped domain error, and the two routing
+codes. The reason for `INTERNAL_ERROR` is the reviewer's argument, and it is a good one — telling a
+caller its operands were invalid when the fault was ours sends it to fix input that was never wrong,
+and leaves the real defect with no trace.
+
+---
+
 ## Where I overrode the agent
 
 1. **Keyboard input.** It argued the feature was out of scope and unrequested. I added it anyway, but

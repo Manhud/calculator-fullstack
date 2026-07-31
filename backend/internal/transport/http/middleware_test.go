@@ -1,6 +1,7 @@
 package http
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -102,12 +103,38 @@ func TestRecoverTurnsAPanicIntoAResponse(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	rec := httptest.NewRecorder()
 
-	// The assertion is that this returns at all: without Recover the panic
+	// The assertion is partly that this returns at all: without Recover the panic
 	// unwinds past the test.
 	Recover(panicking).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
+	}
+	// The body matters as much as the status. A client that parses every
+	// response as JSON throws on an empty body and never reaches its error
+	// branch, so a panic would surface as a parse failure rather than a fault.
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+		t.Errorf("Content-Type = %q, want application/json", ct)
+	}
+	var got errorResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("panic response is not valid JSON: %v (body: %q)", err, rec.Body.String())
+	}
+	if got.Error.Code != codeInternalError {
+		t.Errorf("code = %q, want %q", got.Error.Code, codeInternalError)
+	}
+}
+
+// Wrapping a ResponseWriter hides what the real one implements. net/http reaches
+// through Unwrap for that, and MaxBytesReader needs it to mark an oversized
+// request's connection for closing.
+func TestStatusRecorderExposesTheUnderlyingWriter(t *testing.T) {
+	t.Parallel()
+	inner := httptest.NewRecorder()
+	recorder := &statusRecorder{ResponseWriter: inner}
+
+	if recorder.Unwrap() != http.ResponseWriter(inner) {
+		t.Error("Unwrap did not return the wrapped writer")
 	}
 }
 

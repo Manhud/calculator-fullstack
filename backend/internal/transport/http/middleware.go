@@ -58,10 +58,14 @@ func Recover(next http.Handler) http.Handler {
 			if recovered := recover(); recovered != nil {
 				slog.Error("panic serving request",
 					"error", recovered, "method", r.Method, "path", r.URL.Path)
-				// If the handler already wrote a status this is a no-op with a log
-				// line from net/http, which is the best available outcome: the
-				// response is already partly on the wire.
-				w.WriteHeader(http.StatusInternalServerError)
+				// The envelope matters as much as the status: a client that
+				// parses every response as JSON would otherwise throw on an
+				// empty body and never reach its error branch.
+				//
+				// If the handler already wrote a status this is a no-op with a
+				// log line from net/http — the response is already on the wire
+				// and cannot be corrected.
+				writeError(w, internalError())
 			}
 		}()
 		next.ServeHTTP(w, r)
@@ -88,6 +92,16 @@ func (r *statusRecorder) Write(b []byte) (int, error) {
 	}
 	return r.ResponseWriter.Write(b)
 }
+
+// Unwrap exposes the writer underneath.
+//
+// Wrapping a ResponseWriter hides whatever the real one implements beyond the
+// interface, and net/http reaches for those: http.ResponseController finds the
+// original through Unwrap, and http.MaxBytesReader needs the real writer to mark
+// an oversized request's connection for closing. Without this the request is
+// still refused, but the connection is left to drain a body already known to be
+// too large.
+func (r *statusRecorder) Unwrap() http.ResponseWriter { return r.ResponseWriter }
 
 // Logging records one structured line per request.
 func Logging(next http.Handler) http.Handler {

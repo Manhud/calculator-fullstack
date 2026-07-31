@@ -44,6 +44,17 @@ lives in the transport layer alone, which is what keeps the domain free of HTTP.
 semantically invalid operand, but splitting client faults across two status codes adds a distinction
 the frontend does not act on — it reads the code either way.
 
+**Server faults are separate, and that separation was added after a review.** The first version
+mapped an unmapped domain error onto `INVALID_OPERAND` with a 400. That is a lie with consequences: a
+caller told its operands were invalid retries with different operands and fails again, while the real
+defect leaves no trace. `INTERNAL_ERROR` with a 500 now covers both that case and a recovered panic,
+and both log at error level. It is the only code outside the 400 family.
+
+**Every error response is the envelope, including the router's.** A `ServeMux` answers an unmatched
+path with `text/plain` by default, so a client that parses every response as JSON would throw on the
+one response it did not expect. The bare paths are registered alongside the method-aware patterns to
+take that over.
+
 ## The domain does not know about HTTP
 
 `internal/calculator` imports nothing from this repository and nothing transport-shaped. The

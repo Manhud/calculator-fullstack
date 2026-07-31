@@ -24,6 +24,17 @@ const (
 	codeDivisionByZero   = "DIVISION_BY_ZERO"
 	codeNegativeSqrt     = "NEGATIVE_SQRT"
 	codeResultOverflow   = "RESULT_OVERFLOW"
+
+	// Routing faults. They are client faults like the rest, but they are about
+	// the request line rather than the body: answering "no such endpoint" with
+	// INVALID_JSON would name a cause that has nothing to do with the failure.
+	codeNotFound         = "NOT_FOUND"
+	codeMethodNotAllowed = "METHOD_NOT_ALLOWED"
+
+	// codeInternalError is the only server fault, and the only code answered
+	// with a status other than 400. It exists so that a bug here is never
+	// reported to the client as a mistake the client made.
+	codeInternalError = "INTERNAL_ERROR"
 )
 
 type calculationResponse struct {
@@ -41,13 +52,31 @@ type errorResponse struct {
 	Error errorBody `json:"error"`
 }
 
-// apiError is the wire code and message for a failed request. It deliberately
-// does not implement error: it is the already-decided outcome, not something to
-// be inspected further, and giving it an Error method would invite callers to
-// wrap it and then re-derive the code from a string.
+// apiError is the decided outcome of a failed request: the status, the wire code
+// and the message. It deliberately does not implement error — giving it an Error
+// method would invite callers to wrap it and then re-derive the code from a
+// string, which is the thing sentinel errors exist to avoid.
 type apiError struct {
+	status  int
 	code    string
 	message string
+}
+
+// clientError builds a 400. Every client fault shares one status because the
+// code carries the meaning; splitting across 400 and 422 would add a distinction
+// no client acts on.
+func clientError(code, message string) apiError {
+	return apiError{status: http.StatusBadRequest, code: code, message: message}
+}
+
+// internalError builds a 500 carrying the same envelope, so a client can branch
+// on a code rather than on a parse failure.
+func internalError() apiError {
+	return apiError{
+		status:  http.StatusInternalServerError,
+		code:    codeInternalError,
+		message: "the request could not be processed",
+	}
 }
 
 // errorFrom maps a domain error onto its wire code.
@@ -55,21 +84,23 @@ type apiError struct {
 // Every sentinel in the calculator package appears here. ErrInvalidOperand is
 // among them even though no request can trigger it — encoding/json rejects
 // out-of-range numbers before they reach the domain — because leaving a sentinel
-// unmapped would silently degrade to a generic failure if that ever changed.
+// unmapped would degrade it to a server error if that ever changed.
 func errorFrom(err error) apiError {
 	switch {
 	case errors.Is(err, calculator.ErrDivisionByZero):
-		return apiError{codeDivisionByZero, "cannot divide by zero"}
+		return clientError(codeDivisionByZero, "cannot divide by zero")
 	case errors.Is(err, calculator.ErrNegativeSqrt):
-		return apiError{codeNegativeSqrt, "cannot take the square root of a negative number"}
+		return clientError(codeNegativeSqrt, "cannot take the square root of a negative number")
 	case errors.Is(err, calculator.ErrResultNotFinite):
-		return apiError{codeResultOverflow, "the result is too large to represent"}
+		return clientError(codeResultOverflow, "the result is too large to represent")
 	case errors.Is(err, calculator.ErrInvalidOperand):
-		return apiError{codeInvalidOperand, "operands must be finite numbers"}
+		return clientError(codeInvalidOperand, "operands must be finite numbers")
 	default:
-		// Unreachable while the domain returns only its own sentinels. Kept as a
-		// closed default so an unmapped future error cannot escape as a 200.
-		return apiError{codeInvalidOperand, "the request could not be calculated"}
+		// An error the domain does not define is a bug here, not a bad request.
+		// Reporting it as a client fault would send the caller off to fix input
+		// that was never the problem, and leave no trace of the real failure.
+		slog.Error("unmapped domain error", "error", err)
+		return internalError()
 	}
 }
 
@@ -78,28 +109,36 @@ func errorFrom(err error) apiError {
 // The distinctions are not cosmetic. NaN and Infinity are not JSON syntax and
 // arrive as *json.SyntaxError, so they are malformed bodies. An out-of-range
 // literal such as 1e400 is syntactically valid and arrives as
-// *json.UnmarshalTypeError, so it is a bad operand rather than a bad body.
+// *json.UnmarshalTypeError against the operands field, so it is a bad operand
+// rather than a bad body.
 func decodeErrorFrom(err error) apiError {
 	var typeErr *json.UnmarshalTypeError
 	if errors.As(err, &typeErr) {
-		if typeErr.Field == "operation" {
-			return apiError{codeUnknownOperation, "operation must be one of " + supportedOperations()}
+		switch typeErr.Field {
+		case "operands":
+			return clientError(codeInvalidOperand, "operands must be an array of finite numbers")
+		case "operation":
+			return clientError(codeUnknownOperation, "operation must be one of "+supportedOperations())
+		default:
+			// An empty Field means the mismatch is the document itself — a body
+			// of [1,2] or "hello" rather than an object. Calling that a bad
+			// operand would name a field the body does not even contain.
+			return clientError(codeInvalidJSON, "request body must be a JSON object")
 		}
-		return apiError{codeInvalidOperand, "operands must be finite numbers"}
 	}
 
 	var syntaxErr *json.SyntaxError
 	switch {
 	case errors.As(err, &syntaxErr):
-		return apiError{codeInvalidJSON, "request body is not valid JSON"}
+		return clientError(codeInvalidJSON, "request body is not valid JSON")
 	case errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF):
-		return apiError{codeInvalidJSON, "request body is empty or incomplete"}
+		return clientError(codeInvalidJSON, "request body is empty or incomplete")
 	case isUnknownFieldError(err):
-		return apiError{codeInvalidJSON, "request body contains an unrecognised field"}
+		return clientError(codeInvalidJSON, "request body contains an unrecognised field")
 	}
-	// Covers MaxBytesReader's oversize error among others. The closed code set
-	// has no better bucket, and the body is unusable either way.
-	return apiError{codeInvalidJSON, "request body could not be read"}
+	// Covers MaxBytesReader's oversize error among others. The body is unusable
+	// either way, and it is still the client's body.
+	return clientError(codeInvalidJSON, "request body could not be read")
 }
 
 // isUnknownFieldError matches DisallowUnknownFields by message because
@@ -120,11 +159,9 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	}
 }
 
-// writeError sends an error envelope. Every client fault is 400: splitting them
-// across 400 and 422 would add a distinction no client acts on, since the code
-// carries the meaning.
+// writeError sends an error envelope with the status the error carries.
 func writeError(w http.ResponseWriter, apiErr apiError) {
-	writeJSON(w, http.StatusBadRequest, errorResponse{Error: errorBody{
+	writeJSON(w, apiErr.status, errorResponse{Error: errorBody{
 		Code:    apiErr.code,
 		Message: apiErr.message,
 	}})

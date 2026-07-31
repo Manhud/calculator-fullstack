@@ -46,34 +46,51 @@ func main() {
 	}
 }
 
-// run serves until ctx is cancelled, then drains in-flight requests.
+// run wires the application and serves it until ctx is cancelled.
 //
-// It takes a listener rather than an address so that a test can bind port zero
-// and still know where to send a request. That is what makes graceful shutdown
-// verifiable instead of merely asserted in a comment.
+// It takes a listener rather than an address so a test can bind port zero and
+// still know where to send a request.
 func run(ctx context.Context, listener net.Listener, allowedOrigin string) error {
-	handler := calchttp.NewHandler()
-	// Outermost first: recovery wraps logging so a panic inside logging is still
-	// caught, and both wrap CORS so a failed request keeps its CORS headers.
-	root := calchttp.Chain(handler.Routes(),
+	return serve(ctx, listener, newServer(rootHandler(allowedOrigin)))
+}
+
+// rootHandler assembles the routes and the middleware.
+//
+// Outermost first: recovery wraps logging so a panic inside logging is still
+// caught, and both wrap CORS so a failed request keeps its CORS headers — a
+// browser hides an error response that arrives without them, turning a readable
+// 400 into an opaque network failure.
+func rootHandler(allowedOrigin string) http.Handler {
+	return calchttp.Chain(calchttp.NewHandler().Routes(),
 		calchttp.Recover,
 		calchttp.Logging,
 		calchttp.CORS(allowedOrigin),
 	)
+}
 
-	server := &http.Server{
-		Handler: root,
-		// Without ReadHeaderTimeout a client can hold a connection open by
-		// sending headers one byte at a time.
+// newServer applies the timeouts. Split out so the values are assertable rather
+// than only readable: without ReadHeaderTimeout a client can hold a connection
+// open by sending headers one byte at a time.
+func newServer(handler http.Handler) *http.Server {
+	return &http.Server{
+		Handler:           handler,
 		ReadHeaderTimeout: readHeaderTimeout,
 		ReadTimeout:       readTimeout,
 		WriteTimeout:      writeTimeout,
 		IdleTimeout:       idleTimeout,
 	}
+}
 
+// serve runs the server until ctx is cancelled, then drains in-flight requests.
+//
+// Separate from run so a test can supply a deliberately slow handler and prove
+// that a request already being served survives the shutdown. That claim is the
+// whole point of Shutdown, and it cannot be checked through run, whose handler
+// answers instantly.
+func serve(ctx context.Context, listener net.Listener, server *http.Server) error {
 	serverErr := make(chan error, 1)
 	go func() {
-		slog.Info("listening", "addr", listener.Addr().String(), "allowed_origin", allowedOrigin)
+		slog.Info("listening", "addr", listener.Addr().String())
 		if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			serverErr <- err
 		}

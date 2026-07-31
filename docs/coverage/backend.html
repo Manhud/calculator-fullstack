@@ -134,63 +134,80 @@ func main() <span class="cov0" title="0">{
         }</span>
 }
 
-// run serves until ctx is cancelled, then drains in-flight requests.
+// run wires the application and serves it until ctx is cancelled.
 //
-// It takes a listener rather than an address so that a test can bind port zero
-// and still know where to send a request. That is what makes graceful shutdown
-// verifiable instead of merely asserted in a comment.
-func run(ctx context.Context, listener net.Listener, allowedOrigin string) error <span class="cov6" title="2">{
-        handler := calchttp.NewHandler()
-        // Outermost first: recovery wraps logging so a panic inside logging is still
-        // caught, and both wrap CORS so a failed request keeps its CORS headers.
-        root := calchttp.Chain(handler.Routes(),
+// It takes a listener rather than an address so a test can bind port zero and
+// still know where to send a request.
+func run(ctx context.Context, listener net.Listener, allowedOrigin string) error <span class="cov7" title="3">{
+        return serve(ctx, listener, newServer(rootHandler(allowedOrigin)))
+}</span>
+
+// rootHandler assembles the routes and the middleware.
+//
+// Outermost first: recovery wraps logging so a panic inside logging is still
+// caught, and both wrap CORS so a failed request keeps its CORS headers — a
+// browser hides an error response that arrives without them, turning a readable
+// 400 into an opaque network failure.
+func rootHandler(allowedOrigin string) http.Handler <span class="cov7" title="3">{
+        return calchttp.Chain(calchttp.NewHandler().Routes(),
                 calchttp.Recover,
                 calchttp.Logging,
                 calchttp.CORS(allowedOrigin),
         )
+}</span>
 
-        server := &amp;http.Server{
-                Handler: root,
-                // Without ReadHeaderTimeout a client can hold a connection open by
-                // sending headers one byte at a time.
+// newServer applies the timeouts. Split out so the values are assertable rather
+// than only readable: without ReadHeaderTimeout a client can hold a connection
+// open by sending headers one byte at a time.
+func newServer(handler http.Handler) *http.Server <span class="cov10" title="5">{
+        return &amp;http.Server{
+                Handler:           handler,
                 ReadHeaderTimeout: readHeaderTimeout,
                 ReadTimeout:       readTimeout,
                 WriteTimeout:      writeTimeout,
                 IdleTimeout:       idleTimeout,
         }
+}</span>
 
+// serve runs the server until ctx is cancelled, then drains in-flight requests.
+//
+// Separate from run so a test can supply a deliberately slow handler and prove
+// that a request already being served survives the shutdown. That claim is the
+// whole point of Shutdown, and it cannot be checked through run, whose handler
+// answers instantly.
+func serve(ctx context.Context, listener net.Listener, server *http.Server) error <span class="cov8" title="4">{
         serverErr := make(chan error, 1)
-        go func() </span><span class="cov6" title="2">{
-                slog.Info("listening", "addr", listener.Addr().String(), "allowed_origin", allowedOrigin)
+        go func() </span><span class="cov8" title="4">{
+                slog.Info("listening", "addr", listener.Addr().String())
                 if err := server.Serve(listener); err != nil &amp;&amp; !errors.Is(err, http.ErrServerClosed) </span><span class="cov1" title="1">{
                         serverErr &lt;- err
                 }</span>
         }()
 
-        <span class="cov6" title="2">select </span>{
+        <span class="cov8" title="4">select </span>{
         case err := &lt;-serverErr:<span class="cov1" title="1">
                 return err</span>
-        case &lt;-ctx.Done():<span class="cov1" title="1">
+        case &lt;-ctx.Done():<span class="cov7" title="3">
                 slog.Info("shutting down")</span>
         }
 
         // Shutdown stops accepting connections and waits for in-flight requests. The
         // deadline bounds that wait so a stuck handler cannot block exit forever.
-        <span class="cov1" title="1">shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
+        <span class="cov7" title="3">shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
         defer cancel()
 
         if err := server.Shutdown(shutdownCtx); err != nil </span><span class="cov0" title="0">{
                 return err
         }</span>
-        <span class="cov1" title="1">slog.Info("stopped")
+        <span class="cov7" title="3">slog.Info("stopped")
         return nil</span>
 }
 
-func envOr(key, fallback string) string <span class="cov10" title="3">{
+func envOr(key, fallback string) string <span class="cov7" title="3">{
         if value := os.Getenv(key); value != "" </span><span class="cov1" title="1">{
                 return value
         }</span>
-        <span class="cov6" title="2">return fallback</span>
+        <span class="cov4" title="2">return fallback</span>
 }
 </pre>
 		
@@ -205,13 +222,13 @@ import "math"
 
 // checkOperands rejects NaN and ±Inf before they reach an operation, where they
 // would propagate silently into the result.
-func checkOperands(values ...float64) error <span class="cov9" title="74">{
-        for _, v := range values </span><span class="cov10" title="122">{
+func checkOperands(values ...float64) error <span class="cov9" title="78">{
+        for _, v := range values </span><span class="cov10" title="128">{
                 if math.IsNaN(v) || math.IsInf(v, 0) </span><span class="cov7" title="39">{
                         return ErrInvalidOperand
                 }</span>
         }
-        <span class="cov7" title="35">return nil</span>
+        <span class="cov7" title="39">return nil</span>
 }
 
 // checkResult refuses a value that cannot be represented in JSON. Returning zero
@@ -254,7 +271,7 @@ func Divide(a, b float64) (float64, error) <span class="cov5" title="11">{
         }</span>
         // Compares equal for both +0 and -0, so a negative zero divisor is refused
         // rather than producing -Inf.
-        <span class="cov4" title="5">if b == 0 </span><span class="cov3" title="3">{
+        <span class="cov3" title="5">if b == 0 </span><span class="cov3" title="3">{
                 return 0, ErrDivisionByZero
         }</span>
         <span class="cov2" title="2">return checkResult(a / b)</span>
@@ -273,27 +290,44 @@ func Power(base, exponent float64) (float64, error) <span class="cov5" title="14
 }
 
 // Sqrt returns the square root of x, or ErrNegativeSqrt when x is negative.
-func Sqrt(x float64) (float64, error) <span class="cov4" title="8">{
+func Sqrt(x float64) (float64, error) <span class="cov5" title="10">{
         if err := checkOperands(x); err != nil </span><span class="cov3" title="3">{
                 return 0, err
         }</span>
         // Negative zero has its sign bit set but its value is zero, so it is not
         // negative and passes. math.Signbit would reject it.
-        <span class="cov4" title="5">if x &lt; 0 </span><span class="cov1" title="1">{
+        <span class="cov4" title="7">if x &lt; 0 </span><span class="cov1" title="1">{
                 return 0, ErrNegativeSqrt
         }</span>
-        <span class="cov3" title="4">return checkResult(math.Sqrt(x))</span>
+        <span class="cov4" title="6">root := math.Sqrt(x)
+        // math.Sqrt(-0.0) is -0.0. It compares equal to zero, so a test asserting
+        // `want: 0` passes, but it serialises as "-0" and reaches the user's screen
+        // that way. Normalising here keeps the sign out of the response.
+        if root == 0 </span><span class="cov3" title="4">{
+                return 0, nil
+        }</span>
+        <span class="cov2" title="2">return checkResult(root)</span>
 }
 
 // Percentage returns percent percent of the value: Percentage(50, 200) is 100.
 //
-// Dividing before multiplying keeps a representable answer representable —
-// 200 * 1e307 overflows to +Inf, while (200 / 100) * 1e307 does not.
-func Percentage(percent, of float64) (float64, error) <span class="cov5" title="12">{
+// Multiplying before dividing is the accurate order for ordinary inputs:
+// 10 * 0.1 / 100 is exactly 0.01, while (10 / 100) * 0.1 is 0.010000000000000002,
+// because dividing first rounds a value that is then multiplied.
+//
+// It only fails at the extremes, where the product overflows although the answer
+// is representable — 200 * 1e307 is +Inf, but 200% of 1e307 is not. Rather than
+// trading everyday precision for that case, fall back to the other order when
+// the product overflows. Both are exercised by tests.
+func Percentage(percent, of float64) (float64, error) <span class="cov5" title="14">{
         if err := checkOperands(percent, of); err != nil </span><span class="cov4" title="6">{
                 return 0, err
         }</span>
-        <span class="cov4" title="6">return checkResult(percent / 100 * of)</span>
+        <span class="cov4" title="8">product := percent * of
+        if math.IsInf(product, 0) </span><span class="cov2" title="2">{
+                return checkResult(percent / 100 * of)
+        }</span>
+        <span class="cov4" title="6">return checkResult(product / 100)</span>
 }
 </pre>
 		
@@ -301,6 +335,8 @@ func Percentage(percent, of float64) (float64, error) <span class="cov5" title="
 
 import (
         "encoding/json"
+        "errors"
+        "io"
         "net/http"
         "sort"
         "strconv"
@@ -317,31 +353,38 @@ const maxRequestBytes = 8 &lt;&lt; 10
 // operation binds a name from the API vocabulary to the domain function that
 // implements it and the number of operands it takes.
 //
-// The registry lives here rather than in the domain because "divide" is a wire
-// name, not a mathematical concept. Adding an operation means adding one entry.
+// The registry lives in this layer rather than in the domain because "divide" is
+// a wire name, not a mathematical concept. Adding an operation means adding one
+// entry.
 type operation struct {
         arity int
         apply func(operands []float64) (float64, error)
 }
 
-var operations = map[string]operation{
-        "add":        {arity: 2, apply: func(o []float64) (float64, error) <span class="cov2" title="2">{ return calculator.Add(o[0], o[1]) }</span>},
-        "subtract":   {arity: 2, apply: func(o []float64) (float64, error) <span class="cov1" title="1">{ return calculator.Subtract(o[0], o[1]) }</span>},
-        "multiply":   {arity: 2, apply: func(o []float64) (float64, error) <span class="cov2" title="2">{ return calculator.Multiply(o[0], o[1]) }</span>},
-        "divide":     {arity: 2, apply: func(o []float64) (float64, error) <span class="cov4" title="5">{ return calculator.Divide(o[0], o[1]) }</span>},
-        "power":      {arity: 2, apply: func(o []float64) (float64, error) <span class="cov3" title="3">{ return calculator.Power(o[0], o[1]) }</span>},
-        "percentage": {arity: 2, apply: func(o []float64) (float64, error) <span class="cov1" title="1">{ return calculator.Percentage(o[0], o[1]) }</span>},
-        "sqrt":       {arity: 1, apply: func(o []float64) (float64, error) <span class="cov3" title="3">{ return calculator.Sqrt(o[0]) }</span>},
+// newRegistry returns the supported operations. It is built per Handler rather
+// than kept in a package variable: a mutable package-level map is a global that
+// any code in the package can reach into, and a constructor that injects nothing
+// is ceremony rather than dependency injection.
+func newRegistry() map[string]operation <span class="cov9" title="85">{
+        return map[string]operation{
+                "add":        {arity: 2, apply: func(o []float64) (float64, error) </span><span class="cov2" title="2">{ return calculator.Add(o[0], o[1]) }</span>},
+                "subtract":   {arity: 2, apply: func(o []float64) (float64, error) <span class="cov1" title="1">{ return calculator.Subtract(o[0], o[1]) }</span>},
+                "multiply":   {arity: 2, apply: func(o []float64) (float64, error) <span class="cov2" title="2">{ return calculator.Multiply(o[0], o[1]) }</span>},
+                "divide":     {arity: 2, apply: func(o []float64) (float64, error) <span class="cov4" title="7">{ return calculator.Divide(o[0], o[1]) }</span>},
+                "power":      {arity: 2, apply: func(o []float64) (float64, error) <span class="cov3" title="3">{ return calculator.Power(o[0], o[1]) }</span>},
+                "percentage": {arity: 2, apply: func(o []float64) (float64, error) <span class="cov1" title="1">{ return calculator.Percentage(o[0], o[1]) }</span>},
+                "sqrt":       {arity: 1, apply: func(o []float64) (float64, error) <span class="cov3" title="4">{ return calculator.Sqrt(o[0]) }</span>},
+        }
 }
 
 // supportedOperations lists the operation names in a stable order, so the error
 // message a client sees does not change between requests.
-func supportedOperations() string <span class="cov6" title="15">{
-        names := make([]string, 0, len(operations))
-        for name := range operations </span><span class="cov10" title="105">{
+func supportedOperations() string <span class="cov6" title="16">{
+        names := make([]string, 0, len(newRegistry()))
+        for name := range newRegistry() </span><span class="cov10" title="112">{
                 names = append(names, name)
         }</span>
-        <span class="cov6" title="15">sort.Strings(names)
+        <span class="cov6" title="16">sort.Strings(names)
         return strings.Join(names, ", ")</span>
 }
 
@@ -350,64 +393,98 @@ type calculationRequest struct {
         Operands  []float64 `json:"operands"`
 }
 
-// Handler serves the calculator API. It holds no state; the struct exists so
-// dependencies arrive through it rather than through package-level variables.
-type Handler struct{}
+// Handler serves the calculator API.
+type Handler struct {
+        operations map[string]operation
+}
 
-// NewHandler returns a Handler.
-func NewHandler() *Handler <span class="cov8" title="42">{ return &amp;Handler{} }</span>
+// NewHandler returns a Handler with the operation registry it will serve.
+func NewHandler() *Handler <span class="cov8" title="51">{
+        return &amp;Handler{operations: newRegistry()}
+}</span>
 
 // Routes returns the mux with every route registered. The caller wraps it in
 // whatever middleware it wants; the handler does not choose its own middleware.
-func (h *Handler) Routes() *http.ServeMux <span class="cov8" title="42">{
+func (h *Handler) Routes() *http.ServeMux <span class="cov8" title="51">{
         mux := http.NewServeMux()
-        // Method-aware patterns, so anything but POST on this path is answered with
-        // 405 by the mux itself rather than by a check in the handler.
+        // Method-aware patterns. The bare path is registered too, so a wrong method
+        // is answered with the JSON envelope rather than the mux's text/plain 405 —
+        // the more specific "POST /path" still wins for POST.
         mux.HandleFunc("POST /api/v1/calculations", h.calculate)
+        mux.HandleFunc("/api/v1/calculations", methodNotAllowed)
         mux.HandleFunc("GET /health", h.health)
+        mux.HandleFunc("/health", methodNotAllowed)
+        // Catch-all, so an unmatched path is JSON too. A client that always parses
+        // JSON should never meet a plain-text body from this service.
+        mux.HandleFunc("/", notFound)
         return mux
 }</span>
 
-func (h *Handler) health(w http.ResponseWriter, _ *http.Request) <span class="cov2" title="2">{
+func (h *Handler) health(w http.ResponseWriter, _ *http.Request) <span class="cov1" title="1">{
         writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }</span>
 
-func (h *Handler) calculate(w http.ResponseWriter, r *http.Request) <span class="cov8" title="38">{
+func notFound(w http.ResponseWriter, _ *http.Request) <span class="cov1" title="1">{
+        writeError(w, apiError{
+                status:  http.StatusNotFound,
+                code:    codeNotFound,
+                message: "no such endpoint",
+        })
+}</span>
+
+func methodNotAllowed(w http.ResponseWriter, r *http.Request) <span class="cov1" title="1">{
+        writeError(w, apiError{
+                status:  http.StatusMethodNotAllowed,
+                code:    codeMethodNotAllowed,
+                message: r.Method + " is not allowed on this endpoint",
+        })
+}</span>
+
+func (h *Handler) calculate(w http.ResponseWriter, r *http.Request) <span class="cov8" title="48">{
         r.Body = http.MaxBytesReader(w, r.Body, maxRequestBytes)
 
         decoder := json.NewDecoder(r.Body)
-        // A field the API does not define is a mistake worth reporting rather than
-        // ignoring: silently dropping it lets a client believe it was honoured.
+        // A field the API does not define is worth reporting rather than ignoring:
+        // dropping it silently lets a client believe it was honoured. Note that
+        // encoding/json matches names case-insensitively, so this rejects unknown
+        // names but not a differently-cased spelling of a known one.
         decoder.DisallowUnknownFields()
 
         var req calculationRequest
-        if err := decoder.Decode(&amp;req); err != nil </span><span class="cov5" title="11">{
+        if err := decoder.Decode(&amp;req); err != nil </span><span class="cov6" title="15">{
                 writeError(w, decodeErrorFrom(err))
                 return
         }</span>
+        // Decode stops after one value. Without this, `{...}{...}` and `{...} junk`
+        // are answered 200 and the remainder is discarded without a word, so a client
+        // that double-encodes a body never learns half of it was ignored.
+        <span class="cov7" title="33">if err := decoder.Decode(&amp;struct{}{}); !errors.Is(err, io.EOF) </span><span class="cov2" title="2">{
+                writeError(w, clientError(codeInvalidJSON, "request body must contain exactly one JSON object"))
+                return
+        }</span>
 
-        <span class="cov7" title="26">op, ok := operations[req.Operation]
-        if !ok </span><span class="cov3" title="3">{
-                writeError(w, apiError{codeUnknownOperation, "operation must be one of " + supportedOperations()})
+        <span class="cov7" title="31">op, ok := h.operations[req.Operation]
+        if !ok </span><span class="cov3" title="4">{
+                writeError(w, clientError(codeUnknownOperation, "operation must be one of "+supportedOperations()))
                 return
         }</span>
 
         // A missing key, an explicit null and an empty array all decode to an empty
         // slice, and all three mean the same thing here: no operands were supplied.
-        <span class="cov7" title="24">if len(req.Operands) != op.arity </span><span class="cov4" title="7">{
-                writeError(w, apiError{codeInvalidArity, req.Operation + " takes " +
-                        strconv.Itoa(op.arity) + " operand" + plural(op.arity) + ", got " +
-                        strconv.Itoa(len(req.Operands))})
+        <span class="cov7" title="27">if len(req.Operands) != op.arity </span><span class="cov4" title="7">{
+                writeError(w, clientError(codeInvalidArity, req.Operation+" takes "+
+                        strconv.Itoa(op.arity)+" operand"+plural(op.arity)+", got "+
+                        strconv.Itoa(len(req.Operands))))
                 return
         }</span>
 
-        <span class="cov6" title="17">result, err := op.apply(req.Operands)
-        if err != nil </span><span class="cov5" title="8">{
+        <span class="cov6" title="20">result, err := op.apply(req.Operands)
+        if err != nil </span><span class="cov5" title="10">{
                 writeError(w, errorFrom(err))
                 return
         }</span>
 
-        <span class="cov5" title="9">writeJSON(w, http.StatusOK, calculationResponse{
+        <span class="cov5" title="10">writeJSON(w, http.StatusOK, calculationResponse{
                 Operation: req.Operation,
                 Operands:  req.Operands,
                 Result:    result,
@@ -436,11 +513,11 @@ type Middleware func(http.Handler) http.Handler
 
 // Chain applies middleware so that the first argument is the outermost wrapper,
 // which is the order they are written in at the call site.
-func Chain(h http.Handler, middlewares ...Middleware) http.Handler <span class="cov4" title="2">{
-        for i := len(middlewares) - 1; i &gt;= 0; i-- </span><span class="cov4" title="2">{
+func Chain(h http.Handler, middlewares ...Middleware) http.Handler <span class="cov6" title="3">{
+        for i := len(middlewares) - 1; i &gt;= 0; i-- </span><span class="cov8" title="5">{
                 h = middlewares[i](h)
         }</span>
-        <span class="cov4" title="2">return h</span>
+        <span class="cov6" title="3">return h</span>
 }
 
 // CORS allows a single configured origin.
@@ -448,9 +525,9 @@ func Chain(h http.Handler, middlewares ...Middleware) http.Handler <span class="
 // The origin is echoed only when it matches, rather than reflecting whatever the
 // caller sent: reflecting the request's Origin header would allow every site,
 // which is what a wildcard does but disguised as a check.
-func CORS(allowedOrigin string) Middleware <span class="cov10" title="6">{
-        return func(next http.Handler) http.Handler </span><span class="cov10" title="6">{
-                return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) </span><span class="cov10" title="6">{
+func CORS(allowedOrigin string) Middleware <span class="cov10" title="7">{
+        return func(next http.Handler) http.Handler </span><span class="cov10" title="7">{
+                return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) </span><span class="cov10" title="7">{
                         origin := r.Header.Get("Origin")
                         if origin != "" &amp;&amp; origin == allowedOrigin </span><span class="cov6" title="3">{
                                 w.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
@@ -461,7 +538,7 @@ func CORS(allowedOrigin string) Middleware <span class="cov10" title="6">{
                         // Vary matters even when the origin did not match: without it a shared
                         // cache can serve a response containing one origin's CORS headers to a
                         // request from another.
-                        <span class="cov10" title="6">w.Header().Add("Vary", "Origin")
+                        <span class="cov10" title="7">w.Header().Add("Vary", "Origin")
 
                         // Preflight is answered here. It never reaches the mux, whose patterns
                         // only match POST and GET and would otherwise answer 405.
@@ -469,26 +546,30 @@ func CORS(allowedOrigin string) Middleware <span class="cov10" title="6">{
                                 w.WriteHeader(http.StatusNoContent)
                                 return
                         }</span>
-                        <span class="cov9" title="5">next.ServeHTTP(w, r)</span>
+                        <span class="cov9" title="6">next.ServeHTTP(w, r)</span>
                 })
         }
 }
 
 // Recover turns a panic into a 500 instead of a dropped connection, and logs it
 // with the stack left to the runtime.
-func Recover(next http.Handler) http.Handler <span class="cov4" title="2">{
-        return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) </span><span class="cov4" title="2">{
-                defer func() </span><span class="cov4" title="2">{
+func Recover(next http.Handler) http.Handler <span class="cov6" title="3">{
+        return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) </span><span class="cov6" title="3">{
+                defer func() </span><span class="cov6" title="3">{
                         if recovered := recover(); recovered != nil </span><span class="cov1" title="1">{
                                 slog.Error("panic serving request",
                                         "error", recovered, "method", r.Method, "path", r.URL.Path)
-                                // If the handler already wrote a status this is a no-op with a log
-                                // line from net/http, which is the best available outcome: the
-                                // response is already partly on the wire.
-                                w.WriteHeader(http.StatusInternalServerError)
+                                // The envelope matters as much as the status: a client that
+                                // parses every response as JSON would otherwise throw on an
+                                // empty body and never reach its error branch.
+                                //
+                                // If the handler already wrote a status this is a no-op with a
+                                // log line from net/http — the response is already on the wire
+                                // and cannot be corrected.
+                                writeError(w, internalError())
                         }</span>
                 }()
-                <span class="cov4" title="2">next.ServeHTTP(w, r)</span>
+                <span class="cov6" title="3">next.ServeHTTP(w, r)</span>
         })
 }
 
@@ -499,23 +580,33 @@ type statusRecorder struct {
         status int
 }
 
-func (r *statusRecorder) WriteHeader(status int) <span class="cov4" title="2">{
+func (r *statusRecorder) WriteHeader(status int) <span class="cov6" title="3">{
         r.status = status
         r.ResponseWriter.WriteHeader(status)
 }</span>
 
 // Write records the implicit 200 that net/http writes when a handler writes a
 // body without calling WriteHeader first.
-func (r *statusRecorder) Write(b []byte) (int, error) <span class="cov6" title="3">{
+func (r *statusRecorder) Write(b []byte) (int, error) <span class="cov7" title="4">{
         if r.status == 0 </span><span class="cov1" title="1">{
                 r.status = http.StatusOK
         }</span>
-        <span class="cov6" title="3">return r.ResponseWriter.Write(b)</span>
+        <span class="cov7" title="4">return r.ResponseWriter.Write(b)</span>
 }
 
+// Unwrap exposes the writer underneath.
+//
+// Wrapping a ResponseWriter hides whatever the real one implements beyond the
+// interface, and net/http reaches for those: http.ResponseController finds the
+// original through Unwrap, and http.MaxBytesReader needs the real writer to mark
+// an oversized request's connection for closing. Without this the request is
+// still refused, but the connection is left to drain a body already known to be
+// too large.
+func (r *statusRecorder) Unwrap() http.ResponseWriter <span class="cov1" title="1">{ return r.ResponseWriter }</span>
+
 // Logging records one structured line per request.
-func Logging(next http.Handler) http.Handler <span class="cov1" title="1">{
-        return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) </span><span class="cov1" title="1">{
+func Logging(next http.Handler) http.Handler <span class="cov4" title="2">{
+        return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) </span><span class="cov4" title="2">{
                 start := time.Now()
                 recorder := &amp;statusRecorder{ResponseWriter: w}
                 next.ServeHTTP(recorder, r)
@@ -555,6 +646,17 @@ const (
         codeDivisionByZero   = "DIVISION_BY_ZERO"
         codeNegativeSqrt     = "NEGATIVE_SQRT"
         codeResultOverflow   = "RESULT_OVERFLOW"
+
+        // Routing faults. They are client faults like the rest, but they are about
+        // the request line rather than the body: answering "no such endpoint" with
+        // INVALID_JSON would name a cause that has nothing to do with the failure.
+        codeNotFound         = "NOT_FOUND"
+        codeMethodNotAllowed = "METHOD_NOT_ALLOWED"
+
+        // codeInternalError is the only server fault, and the only code answered
+        // with a status other than 400. It exists so that a bug here is never
+        // reported to the client as a mistake the client made.
+        codeInternalError = "INTERNAL_ERROR"
 )
 
 type calculationResponse struct {
@@ -572,35 +674,55 @@ type errorResponse struct {
         Error errorBody `json:"error"`
 }
 
-// apiError is the wire code and message for a failed request. It deliberately
-// does not implement error: it is the already-decided outcome, not something to
-// be inspected further, and giving it an Error method would invite callers to
-// wrap it and then re-derive the code from a string.
+// apiError is the decided outcome of a failed request: the status, the wire code
+// and the message. It deliberately does not implement error — giving it an Error
+// method would invite callers to wrap it and then re-derive the code from a
+// string, which is the thing sentinel errors exist to avoid.
 type apiError struct {
+        status  int
         code    string
         message string
 }
+
+// clientError builds a 400. Every client fault shares one status because the
+// code carries the meaning; splitting across 400 and 422 would add a distinction
+// no client acts on.
+func clientError(code, message string) apiError <span class="cov9" title="42">{
+        return apiError{status: http.StatusBadRequest, code: code, message: message}
+}</span>
+
+// internalError builds a 500 carrying the same envelope, so a client can branch
+// on a code rather than on a parse failure.
+func internalError() apiError <span class="cov2" title="2">{
+        return apiError{
+                status:  http.StatusInternalServerError,
+                code:    codeInternalError,
+                message: "the request could not be processed",
+        }
+}</span>
 
 // errorFrom maps a domain error onto its wire code.
 //
 // Every sentinel in the calculator package appears here. ErrInvalidOperand is
 // among them even though no request can trigger it — encoding/json rejects
 // out-of-range numbers before they reach the domain — because leaving a sentinel
-// unmapped would silently degrade to a generic failure if that ever changed.
-func errorFrom(err error) apiError <span class="cov7" title="13">{
+// unmapped would degrade it to a server error if that ever changed.
+func errorFrom(err error) apiError <span class="cov7" title="15">{
         switch </span>{
-        case errors.Is(err, calculator.ErrDivisionByZero):<span class="cov4" title="4">
-                return apiError{codeDivisionByZero, "cannot divide by zero"}</span>
+        case errors.Is(err, calculator.ErrDivisionByZero):<span class="cov5" title="6">
+                return clientError(codeDivisionByZero, "cannot divide by zero")</span>
         case errors.Is(err, calculator.ErrNegativeSqrt):<span class="cov3" title="3">
-                return apiError{codeNegativeSqrt, "cannot take the square root of a negative number"}</span>
+                return clientError(codeNegativeSqrt, "cannot take the square root of a negative number")</span>
         case errors.Is(err, calculator.ErrResultNotFinite):<span class="cov4" title="4">
-                return apiError{codeResultOverflow, "the result is too large to represent"}</span>
+                return clientError(codeResultOverflow, "the result is too large to represent")</span>
         case errors.Is(err, calculator.ErrInvalidOperand):<span class="cov1" title="1">
-                return apiError{codeInvalidOperand, "operands must be finite numbers"}</span>
+                return clientError(codeInvalidOperand, "operands must be finite numbers")</span>
         default:<span class="cov1" title="1">
-                // Unreachable while the domain returns only its own sentinels. Kept as a
-                // closed default so an unmapped future error cannot escape as a 200.
-                return apiError{codeInvalidOperand, "the request could not be calculated"}</span>
+                // An error the domain does not define is a bug here, not a bad request.
+                // Reporting it as a client fault would send the caller off to fix input
+                // that was never the problem, and leave no trace of the real failure.
+                slog.Error("unmapped domain error", "error", err)
+                return internalError()</span>
         }
 }
 
@@ -609,38 +731,46 @@ func errorFrom(err error) apiError <span class="cov7" title="13">{
 // The distinctions are not cosmetic. NaN and Infinity are not JSON syntax and
 // arrive as *json.SyntaxError, so they are malformed bodies. An out-of-range
 // literal such as 1e400 is syntactically valid and arrives as
-// *json.UnmarshalTypeError, so it is a bad operand rather than a bad body.
-func decodeErrorFrom(err error) apiError <span class="cov6" title="11">{
+// *json.UnmarshalTypeError against the operands field, so it is a bad operand
+// rather than a bad body.
+func decodeErrorFrom(err error) apiError <span class="cov7" title="15">{
         var typeErr *json.UnmarshalTypeError
-        if errors.As(err, &amp;typeErr) </span><span class="cov4" title="4">{
-                if typeErr.Field == "operation" </span><span class="cov1" title="1">{
-                        return apiError{codeUnknownOperation, "operation must be one of " + supportedOperations()}
-                }</span>
-                <span class="cov3" title="3">return apiError{codeInvalidOperand, "operands must be finite numbers"}</span>
+        if errors.As(err, &amp;typeErr) </span><span class="cov5" title="7">{
+                switch typeErr.Field </span>{
+                case "operands":<span class="cov3" title="3">
+                        return clientError(codeInvalidOperand, "operands must be an array of finite numbers")</span>
+                case "operation":<span class="cov1" title="1">
+                        return clientError(codeUnknownOperation, "operation must be one of "+supportedOperations())</span>
+                default:<span class="cov3" title="3">
+                        // An empty Field means the mismatch is the document itself — a body
+                        // of [1,2] or "hello" rather than an object. Calling that a bad
+                        // operand would name a field the body does not even contain.
+                        return clientError(codeInvalidJSON, "request body must be a JSON object")</span>
+                }
         }
 
-        <span class="cov5" title="7">var syntaxErr *json.SyntaxError
+        <span class="cov5" title="8">var syntaxErr *json.SyntaxError
         switch </span>{
         case errors.As(err, &amp;syntaxErr):<span class="cov2" title="2">
-                return apiError{codeInvalidJSON, "request body is not valid JSON"}</span>
+                return clientError(codeInvalidJSON, "request body is not valid JSON")</span>
         case errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF):<span class="cov3" title="3">
-                return apiError{codeInvalidJSON, "request body is empty or incomplete"}</span>
+                return clientError(codeInvalidJSON, "request body is empty or incomplete")</span>
         case isUnknownFieldError(err):<span class="cov1" title="1">
-                return apiError{codeInvalidJSON, "request body contains an unrecognised field"}</span>
+                return clientError(codeInvalidJSON, "request body contains an unrecognised field")</span>
         }
-        // Covers MaxBytesReader's oversize error among others. The closed code set
-        // has no better bucket, and the body is unusable either way.
-        <span class="cov1" title="1">return apiError{codeInvalidJSON, "request body could not be read"}</span>
+        // Covers MaxBytesReader's oversize error among others. The body is unusable
+        // either way, and it is still the client's body.
+        <span class="cov2" title="2">return clientError(codeInvalidJSON, "request body could not be read")</span>
 }
 
 // isUnknownFieldError matches DisallowUnknownFields by message because
 // encoding/json returns a plain error for it and exposes no type to assert on.
 // Isolated here so the string match has exactly one place to break.
-func isUnknownFieldError(err error) bool <span class="cov2" title="2">{
+func isUnknownFieldError(err error) bool <span class="cov3" title="3">{
         return err != nil &amp;&amp; strings.HasPrefix(err.Error(), "json: unknown field ")
 }</span>
 
-func writeJSON(w http.ResponseWriter, status int, payload any) <span class="cov10" title="41">{
+func writeJSON(w http.ResponseWriter, status int, payload any) <span class="cov10" title="53">{
         w.Header().Set("Content-Type", "application/json; charset=utf-8")
         w.WriteHeader(status)
         if err := json.NewEncoder(w).Encode(payload); err != nil </span><span class="cov1" title="1">{
@@ -651,11 +781,9 @@ func writeJSON(w http.ResponseWriter, status int, payload any) <span class="cov1
         }</span>
 }
 
-// writeError sends an error envelope. Every client fault is 400: splitting them
-// across 400 and 422 would add a distinction no client acts on, since the code
-// carries the meaning.
-func writeError(w http.ResponseWriter, apiErr apiError) <span class="cov9" title="29">{
-        writeJSON(w, http.StatusBadRequest, errorResponse{Error: errorBody{
+// writeError sends an error envelope with the status the error carries.
+func writeError(w http.ResponseWriter, apiErr apiError) <span class="cov9" title="41">{
+        writeJSON(w, apiErr.status, errorResponse{Error: errorBody{
                 Code:    apiErr.code,
                 Message: apiErr.message,
         }})
