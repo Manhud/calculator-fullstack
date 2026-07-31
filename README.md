@@ -62,6 +62,89 @@ Then open <http://localhost:5173>. The API is on <http://localhost:8080>.
 make dev        # API on :8080, frontend on :5173
 ```
 
+## The API
+
+One endpoint. The operation travels in the body, so adding one touches a switch statement rather than
+a new route. Every response below was produced by running the command against the service, not written
+from memory.
+
+### `POST /api/v1/calculations`
+
+```bash
+curl -X POST http://localhost:8080/api/v1/calculations \
+  -H 'Content-Type: application/json' \
+  -d '{"operation": "divide", "operands": [10, 4]}'
+```
+
+```json
+{ "operation": "divide", "operands": [10, 4], "result": 2.5 }
+```
+
+`operation` is one of `add`, `subtract`, `multiply`, `divide`, `power`, `sqrt`, `percentage`.
+`operands` holds two numbers, except for `sqrt`, which takes one.
+
+```bash
+# sqrt takes a single operand
+curl -X POST http://localhost:8080/api/v1/calculations \
+  -H 'Content-Type: application/json' -d '{"operation": "sqrt", "operands": [9]}'
+#> {"operation":"sqrt","operands":[9],"result":3}
+
+# percentage is "a percent of b"
+curl -X POST http://localhost:8080/api/v1/calculations \
+  -H 'Content-Type: application/json' -d '{"operation": "percentage", "operands": [50, 200]}'
+#> {"operation":"percentage","operands":[50,200],"result":100}
+
+# float64, shown rather than hidden — see DESIGN.md on why this would be wrong for money
+curl -X POST http://localhost:8080/api/v1/calculations \
+  -H 'Content-Type: application/json' -d '{"operation": "add", "operands": [0.1, 0.2]}'
+#> {"operation":"add","operands":[0.1,0.2],"result":0.30000000000000004}
+```
+
+### Errors
+
+Every failure — including the router's — uses one envelope. The `code` is the contract and is safe to
+branch on; the `message` is for a human reading a log, and its wording may change.
+
+```bash
+curl -X POST http://localhost:8080/api/v1/calculations \
+  -H 'Content-Type: application/json' -d '{"operation": "divide", "operands": [10, 0]}'
+```
+
+```json
+{ "error": { "code": "DIVISION_BY_ZERO", "message": "cannot divide by zero" } }
+```
+
+The complete set, each with the request that provokes it and the response it returns:
+
+| Request                                       | Status | Code                 | Message                                          |
+| --------------------------------------------- | ------ | -------------------- | ------------------------------------------------ |
+| `{"operation":`                                | 400    | `INVALID_JSON`       | request body is empty or incomplete              |
+| `{"operation":"modulo","operands":[7,3]}`      | 400    | `UNKNOWN_OPERATION`  | operation must be one of add, divide, multiply, … |
+| `{"operation":"sqrt","operands":[9,2]}`        | 400    | `INVALID_ARITY`      | sqrt takes 1 operand, got 2                      |
+| `{"operation":"add","operands":["x",1]}`       | 400    | `INVALID_OPERAND`    | operands must be an array of finite numbers      |
+| `{"operation":"add","operands":[1e400,1]}`     | 400    | `INVALID_OPERAND`    | operands must be an array of finite numbers      |
+| `{"operation":"divide","operands":[10,0]}`     | 400    | `DIVISION_BY_ZERO`   | cannot divide by zero                            |
+| `{"operation":"sqrt","operands":[-1]}`         | 400    | `NEGATIVE_SQRT`      | cannot take the square root of a negative number |
+| `{"operation":"power","operands":[10,400]}`    | 400    | `RESULT_OVERFLOW`    | the result is too large to represent             |
+| `POST /api/v1/nope`                            | 404    | `NOT_FOUND`          | no such endpoint                                 |
+| `PUT /api/v1/calculations`                     | 405    | `METHOD_NOT_ALLOWED` | PUT is not allowed on this endpoint              |
+| *a fault in the service*                       | 500    | `INTERNAL_ERROR`     | the request could not be processed               |
+
+Two of those are worth a second look. `1e400` is valid JSON but outside `float64`, so it fails while
+decoding rather than while calculating — a different code path from `NaN`, which is not JSON syntax at
+all and comes back as `INVALID_JSON`. And `INTERNAL_ERROR` exists so a bug in the service is never
+reported as the caller's mistake; every other code is a fault in the request.
+
+### `GET /health`
+
+```bash
+curl http://localhost:8080/health
+#> {"status":"ok"}
+```
+
+Used by the container healthcheck. Unversioned, because a health probe that breaks on an API version
+bump is not a health probe.
+
 ## Commands
 
 ```bash

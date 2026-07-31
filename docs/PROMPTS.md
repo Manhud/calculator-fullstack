@@ -499,6 +499,31 @@ because people learn to ignore the red.
 
 ---
 
+### 2026-07-31 — API examples in the README
+
+**Agent:** Claude Code (Opus 5)
+
+**Prompt:**
+
+> The README is missing the API examples the assignment asks for. Add them — and run every one against
+> the service, so the responses shown are real rather than written from memory.
+
+**Outcome:** A section covering the endpoint, the three shapes worth showing, and a table of all ten
+error codes with the request that provokes each and the response it returns.
+
+**Human review:** Insisting the examples be executed rather than recalled is the whole point of the
+instruction, and it earned itself immediately. The messages in the table are the service's actual
+wording — "sqrt takes 1 operand, got 2", "PUT is not allowed on this endpoint" — which no one would
+have reproduced exactly by hand, and a README whose examples do not match the running code is worse
+than one with no examples, because it teaches the reader to distrust the rest of it.
+
+I also verified every status code in the table rather than assuming, including the claim I had written
+into the prose: that a literal `NaN` fails as `INVALID_JSON` while `1e400` fails as `INVALID_OPERAND`.
+Both hold, and they are different code paths — one is not JSON syntax at all, the other is valid syntax
+carrying a number outside `float64`.
+
+---
+
 ## Where I overrode the agent
 
 1. **Keyboard input.** It argued the feature was out of scope and unrequested. I added it anyway, but
