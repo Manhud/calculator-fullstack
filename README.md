@@ -50,7 +50,7 @@ before the code, and it is the specification the review agents in `.claude/agent
 make help       # list every target
 make test       # both test suites
 make coverage   # regenerate docs/coverage/ and enforce the thresholds
-make lint       # gofmt, go vet, eslint, tsc --noEmit
+make lint       # gofmt, go vet, oxlint, tsc --noEmit
 ```
 
 ## AI usage

@@ -1,0 +1,54 @@
+@import 'tailwindcss';
+
+/*
+ * A deliberately narrow palette. The brief is a calculator, not a landing page,
+ * so the only element carrying visual weight is the answer.
+ *
+ * Not the near-black ground with a single acid accent that this kind of app
+ * usually becomes: an instrument panel suits it better — a deep slate ground, one
+ * warm amber for the active operation, and the result set in a monospace face at
+ * a size nothing else competes with.
+ */
+@theme {
+  --color-panel: oklch(0.21 0.02 255);
+  --color-panel-raised: oklch(0.26 0.02 255);
+  --color-edge: oklch(0.34 0.02 255);
+  --color-ink: oklch(0.96 0.005 255);
+  --color-ink-dim: oklch(0.72 0.015 255);
+  --color-accent: oklch(0.78 0.14 75);
+  --color-accent-ink: oklch(0.24 0.05 75);
+  --color-alarm: oklch(0.75 0.15 25);
+
+  --font-mono: 'SFMono-Regular', 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  background: var(--color-panel);
+  color: var(--color-ink);
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/*
+ * Focus stays visible. Removing the ring without replacing it makes the keyboard
+ * path unusable for anyone who cannot see where they are.
+ */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

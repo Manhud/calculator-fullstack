@@ -88,7 +88,7 @@ concrete checklist rather than generic advice.
 
 **Human review:** The agent sharpened my own framing and was right to: the strongest form of "build the
 tooling" is the *deterministic* check, not another model. An agent finds different things each run;
-`tsc --noEmit`, `eslint-plugin-jsx-a11y` and `go vet` fail the same way every time. So the reviewers
+`tsc --noEmit`, oxlint's jsx-a11y rules and `go vet` fail the same way every time. So the reviewers
 are the backstop for what those cannot express — all seven error codes being reachable, `errors.Is`
 used rather than string comparison, the keyboard bail-out rules — and the linters carry everything they
 can. That principle is written into Section 9 as "guardrails over inspection".
@@ -296,6 +296,70 @@ same commit: `INTERNAL_ERROR` at 500 for a panic or an unmapped domain error, an
 codes. The reason for `INTERNAL_ERROR` is the reviewer's argument, and it is a good one — telling a
 caller its operands were invalid when the fault was ours sends it to fix input that was never wrong,
 and leaves the real defect with no trace.
+
+---
+
+### 2026-07-31 — Phase 3: the React frontend
+
+**Agent:** Claude Code (Opus 5)
+
+**Prompt:**
+
+> **Phase 3 — React frontend.**
+>
+> Scaffold `frontend/` with Vite, React 19 and TypeScript in strict mode, plus Tailwind v4 via
+> `@tailwindcss/vite`. Follow CLAUDE.md Section 5.
+>
+> - `src/api/`: the only place `fetch` is called. `types.ts` mirrors Section 3 exactly — every error
+>   code as a union type, request and response shapes. The client returns a discriminated union so a
+>   success and a failure cannot both be represented at once. No `any`.
+> - `src/domain/`: operation metadata — display name, symbol, arity — and the client-side validation
+>   rules. This is the single source for both the UI and the keyboard map.
+> - `src/hooks/useCalculator.ts`: owns the request state machine. A slow response must not overwrite
+>   state the user has since changed, and a server error always overrides local state.
+> - `src/hooks/useKeyboard.ts`: the Section 5 key table and its five rules — digits reach the focused
+>   input natively rather than being synthesised, bail out on modifier keys, on a foreign event target
+>   and on `isComposing`, `preventDefault` only on handled keys, never intercept `Backspace`.
+> - `src/components/`: presentational only. Labelled inputs, `role="alert"` on the error region,
+>   visible focus, errors as text and not colour alone, `aria-keyshortcuts` on each operation control,
+>   and a visible shortcut legend. Responsive down to 360px.
+> - Wire the linter so accessibility violations fail the build rather than waiting for review.
+>
+> Error copy: state what happened and what to do, in the interface's voice. No apologies, nothing vague.
+> Show me the type definitions, the state machine's transitions and the component tree before building.
+
+**Outcome:** `tsc --noEmit` and oxlint clean, production build at 63 kB gzipped. Verified in a real
+browser rather than only in a test runner.
+
+**Human review:** Three corrections, and two of them came from running the app rather than reading it.
+
+The state machine in Section 5 listed a `validating` state that cannot exist — client validation is
+synchronous, so React never renders it and no test can observe it. I replaced it with an `origin` field
+on the error state, which is observable and carries the rule that actually matters: the server always
+overrides a local verdict. Section 5 was updated to match.
+
+The key table contradicted itself: `-` appeared both as "typed into the field" and as the shortcut for
+subtract. A calculator that cannot accept a negative number is broken, so typing wins and subtract
+moved to `s`. One collision remains — `1e+5` has to be written `1e5` — and it is documented rather than
+solved, because every fix costs more than the case is worth.
+
+Then I drove the running app through Chrome's DevTools protocol with real key events, and it found two
+defects that neither the type checker nor the linter could see. The keyboard shortcuts were dead on
+page load: the hook bailed out whenever the event target sat outside the calculator, and on load the
+target is `<body>`, so nothing worked until the user happened to click a field. And disabling the
+inputs during a request handed focus back to `<body>` after every calculation, losing the user's place.
+Nothing is disabled now — the hook already aborts a superseded request, so the guard was costing more
+than it protected.
+
+The linter caught a third, before the browser did. I had written the operation picker as buttons with
+`role="radio"` inside a `role="radiogroup"`, which promises arrow-key navigation and a single tab stop
+and delivers neither unless both are hand-written. An ARIA role the code does not honour is worse than
+no role, because assistive technology believes it. Native radios provide the behaviour for free.
+
+The toolchain also differed from what I had assumed: the Vite template now ships **oxlint** rather than
+ESLint, with the jsx-a11y and react rule sets built in. Adding ESLint to run rules oxlint already has
+would have been a second linter for nothing, so the references in `CLAUDE.md`, the `Makefile` and the
+README were corrected instead.
 
 ---
 

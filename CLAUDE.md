@@ -161,12 +161,21 @@ it never rounds before sending.
 
 ## 5. Frontend conventions (React + TypeScript)
 
-- Vite 7 + React 19 + TypeScript, `strict: true`. No `any`. No Redux/Zustand — `useReducer` at most.
-  Node 22 LTS, pinned in `.nvmrc`. Vite 7 requires Node `^20.19 || >=22.12`.
+- Vite 8 + React 19 + TypeScript 6, `strict: true`. No `any`, no non-null `!`. No Redux/Zustand —
+  `useReducer` at most. Node 22 LTS, pinned in `.nvmrc`.
+- Linting is **oxlint**, which ships with the Vite React template and carries the jsx-a11y, react and
+  vitest rule sets natively. `.oxlintrc.json` turns the accessibility rules into build failures. There
+  is no ESLint in this project; adding one to run rules oxlint already has would be a second linter.
 - **All network access lives in `src/api/`.** Components never call `fetch`. Types in `src/api/types.ts`
-  mirror Section 3 exactly.
-- `useCalculator` hook owns the request state machine: `idle | validating | loading | success | error`.
-  Components render that state; they contain no logic beyond presentation.
+  mirror Section 3 exactly, including every error code.
+- `useCalculator` owns the request state machine: `idle | loading | success | error`, where an error
+  records its `origin` as `client` or `server`. Components render that state and hold no logic beyond
+  presentation.
+
+  An earlier version of this list included a `validating` state. It was removed: client validation is
+  synchronous, so React never renders it and no test can observe it — a state that cannot exist is
+  worse than no state, because it describes the app inaccurately. What replaced it, `origin`, is
+  observable and carries the rule that actually matters: a server error always overrides a local one.
 - Client-side validation duplicates server rules intentionally (fast feedback) but the server is
   authoritative — a server error always overrides local state. Say this in DESIGN.md.
 - Accessibility is part of "clean UI": labelled inputs, `role="alert"` on the error region,
@@ -179,14 +188,26 @@ it never rounds before sending.
 - **Keyboard input.** In scope by explicit decision, and deliberately small — a `useKeyboard` hook,
   no library. The mapping is exhaustive; do not add to it:
 
-  | Key                  | Action                                  |
-  | -------------------- | --------------------------------------- |
-  | `0`–`9`, `.`, `-`    | typed into the focused operand field    |
-  | `+ - * / ^ %`        | select that operation                   |
-  | `r`                  | select `sqrt` (root)                    |
-  | `Enter`              | submit, if the form is valid            |
-  | `Escape`             | clear operands, result and error        |
-  | `Backspace`          | native field behaviour — never intercept |
+  | Key                       | Action                                   |
+  | ------------------------- | ---------------------------------------- |
+  | `0`–`9`, `.`, `-`, `e`    | typed into the focused operand field     |
+  | `+`                       | select `add`                             |
+  | `s`                       | select `subtract`                        |
+  | `*`                       | select `multiply`                        |
+  | `/`                       | select `divide`                          |
+  | `^`                       | select `power`                           |
+  | `r`                       | select `sqrt` (root)                     |
+  | `%`                       | select `percentage`                      |
+  | `Enter`                   | submit                                   |
+  | `Escape`                  | clear operands, result and error         |
+  | `Backspace`               | native field behaviour — never intercept |
+
+  **Subtract is `s`, not `-`.** An earlier version of this table listed `-` in both rows, which cannot
+  hold: the minus key has to reach the field or a negative number cannot be typed. Rule 1 below
+  decides it — typing wins, so the shortcut moved.
+
+  The remaining collision is `1e+5`: the `+` is claimed as a shortcut, so scientific notation has to
+  be written `1e5`. Accepted rather than solved, because every fix costs more than the case is worth.
 
   Rules, in priority order. Break any of these and the feature is a regression, not a feature:
   1. Native typing always wins. Digits and `.` reach the input because it has focus — the hook does
@@ -230,7 +251,7 @@ details, and never weaken an assertion to make a test pass — fix the code.
 make dev            # backend on :8080 + frontend on :5173
 make test           # go test ./... && npm test -- --run
 make coverage       # coverage profiles + HTML into docs/coverage/
-make lint           # gofmt, go vet, eslint, tsc --noEmit
+make lint           # gofmt, go vet, oxlint, tsc --noEmit
 make docker-up      # docker compose up --build
 ```
 
@@ -266,7 +287,7 @@ not just generation. Never leave it as "looks good".
 - **Contract before code.** Section 3 is frozen. If a change is genuinely needed, update Section 3,
   the README and the frontend types in the same change — never let them drift.
 - **Guardrails over inspection.** Prefer a constraint that fails deterministically to a convention
-  someone has to remember: `strict` TypeScript, `eslint-plugin-jsx-a11y`, `eslint-plugin-testing-library`,
+  someone has to remember: `strict` TypeScript, oxlint with its jsx-a11y and react plugins,
   and types that make invalid states unrepresentable; `gofmt`, `go vet` and a `go.mod` with no
   unjustified dependency. The two reviewers in `.claude/agents/` — `backend-reviewer` for Sections 2-4,
   `frontend-reviewer` for Section 5 — are the backstop for what those cannot catch. Run the matching

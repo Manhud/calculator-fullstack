@@ -42,7 +42,7 @@ lint-backend: ## gofmt + go vet
 	 fi
 	cd $(BACKEND) && go vet ./...
 
-lint-frontend: ## eslint + tsc --noEmit
+lint-frontend: ## oxlint (jsx-a11y, react) + tsc --noEmit
 	cd $(FRONTEND) && npm run lint
 	cd $(FRONTEND) && npx tsc --noEmit
 
