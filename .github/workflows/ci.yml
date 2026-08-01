@@ -95,20 +95,26 @@ jobs:
       - name: Enforce thresholds
         run: ./scripts/coverage.sh
 
-      # The committed report is a deliverable, so it must not drift from the code.
+      # The freshly generated report, downloadable from the run.
       #
-      # Only the summary is compared. The HTML cannot be: istanbul stamps a
-      # generation time into every page, and Go's cover output records per-run
-      # hit counts that vary with parallel test execution — a diff over those
-      # would fail on every single run, which is worse than no check at all.
-      # This was verified by regenerating twice without touching any code.
-      - name: Committed coverage matches the code
-        run: |
-          if ! git diff --quiet -- docs/coverage/frontend/coverage-summary.json; then
-            echo "Coverage has changed — run 'make coverage' and commit docs/coverage"
-            git diff -- docs/coverage/frontend/coverage-summary.json
-            exit 1
-          fi
+      # There is deliberately no step asserting that the committed report matches
+      # this one. Two were written and both were wrong: the HTML carries an
+      # istanbul timestamp and Go's per-run hit counts, and the JSON summary
+      # records absolute paths, so it differs between a laptop and a runner by
+      # construction. Backend coverage is not even stable across machines — the
+      # graceful-shutdown tests reach different branches depending on timing, and
+      # it lands anywhere from 87% to 94%.
+      #
+      # The threshold gate above is the check that survives, because it runs on
+      # numbers computed here rather than on a file someone remembered to commit.
+      # A check that fails for reasons unrelated to the code is worse than none:
+      # people learn to ignore the red.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: docs/coverage/
+          retention-days: 14
 
   docker:
     name: Container images

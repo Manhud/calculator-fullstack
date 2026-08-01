@@ -489,13 +489,24 @@ the bundle. That means it has to be the browser's view of the API and not the co
 `http://api:8080` would resolve only inside the network, where no browser runs. I verified the value
 actually reached the bundle by grepping the served JavaScript.
 
-One CI step was written and then rewritten. The first version asserted that the committed coverage
-report matched the code, by diffing `docs/coverage` after regenerating it. I tested that assumption
-instead of shipping it, and it was wrong: istanbul stamps a generation time into every HTML page, and
-Go's cover output records per-run hit counts that vary with parallel execution. The step would have
-failed on every single run. It now compares the coverage summary alone, which is stable, and the
-comment says why the HTML cannot be compared — a check that always fails is worse than no check,
-because people learn to ignore the red.
+One CI step was written three times and then deleted, and the sequence is worth recording because the
+lesson is about testing rather than about coverage.
+
+The step asserted that the committed coverage report still matched the code. Version one diffed the
+whole of `docs/coverage`; I tested it before shipping and it was wrong — istanbul stamps a generation
+time into every HTML page and Go records per-run hit counts, so it would have failed on every run.
+Version two narrowed the comparison to the JSON summary, which I verified by regenerating twice
+locally. That passed, so I shipped it, and it failed on the first push.
+
+The summary records **absolute file paths**: `/Users/…` on my laptop, `/home/runner/…` on the runner.
+Regenerating twice on one machine could never have revealed that. The test was as wrong as the code.
+
+The step is gone now rather than fixed a third time. Two further facts settled it: backend coverage is
+not stable across machines either — the graceful-shutdown tests reach different branches depending on
+timing, landing anywhere between 87% and 94% — and the threshold gate already runs on numbers computed
+during the run rather than on a file someone remembered to commit. CI uploads the fresh report as an
+artifact instead. A check that fails for reasons unrelated to the code is worse than no check, because
+people learn to ignore the red.
 
 ---
 
