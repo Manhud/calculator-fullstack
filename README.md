@@ -5,6 +5,8 @@
 A calculator split across two services: a Go REST API that owns the arithmetic, and a React +
 TypeScript frontend that consumes it.
 
+![The calculator, with its keypad, expression line and history panel](docs/screenshot.png)
+
 The interesting part is not the arithmetic. It is where the rules live, how a bad input is refused,
 and what happens at the edges — division by zero, the square root of a negative, a result that
 overflows past what a `float64` can hold.
